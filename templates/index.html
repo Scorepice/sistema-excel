@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 50vh;">
+    <div class="card card-custom p-5 text-center" style="max-width: 500px; width: 100%;">
+        <h3 class="mb-3" style="color: var(--azul-marino);">📊 Carga de Base de Datos</h3>
+        <p class="text-muted mb-4">Sube el archivo Excel oficial para alimentar el sistema.</p>
+        
+        <form action="/subir" method="POST" enctype="multipart/form-data">
+            <input type="file" name="archivo" class="form-control mb-4" accept=".xlsx" required>
+            <button class="btn btn-primary-custom w-100 py-2 fw-bold shadow-sm">Procesar Información</button>
+        </form>
+
+        <hr class="my-4">
+        
+        <a href="/datos" class="btn btn-outline-secondary w-100 fw-bold shadow-sm">Ver Base de Datos Actual</a>
+    </div>
+</div>
+{% endblock %}

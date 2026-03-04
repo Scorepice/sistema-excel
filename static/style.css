@@ -1,0 +1,40 @@
+/* Colores corporativos basados en Maritime Contractors */
+:root {
+    /* Este es el azul oscuro del logo */
+    --azul-marino: #17659d; 
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Diseño del Header */
+.corporate-header {
+    background-color: #ffffff;
+    border-bottom: 4px solid var(--azul-marino);
+}
+
+/* Diseño del Footer para que siempre se quede al fondo de la pantalla */
+.corporate-footer {
+    background-color: #ffffff;
+    border-top: 1px solid #e0e0e0;
+    font-size: 0.9rem;
+}
+
+/* Estilos para que las tarjetas de datos se vean modernas */
+.card-custom {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+}
+
+/* Botones con el color de la empresa */
+.btn-primary-custom {
+    background-color: var(--azul-marino);
+    border: none;
+    color: white;
+}
+.btn-primary-custom:hover {
+    background-color: #0f4873;
+    color: white;
+}
