@@ -1,0 +1,12 @@
+# Bases de datos
+*.db
+
+# Archivos de Excel
+*.xlsx
+
+# Reportes en PDF
+*.pdf
+
+# Carpetas de Python
+__pycache__/
+*.pyc

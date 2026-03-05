@@ -25,7 +25,7 @@ body {
 .card-custom {
     border: none;
     border-radius: 12px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+    box-shadow: navy 0px 4px 12px -1px, #000000 0px 2px 4px -1px;
 }
 
 /* Botones con el color de la empresa */

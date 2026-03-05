@@ -7,7 +7,7 @@
             {% for col in columnas %}
             <div class="mb-3">
                 <label class="form-label text-capitalize fw-bold">{{ col }}</label>
-                <input type="text" class="form-control" name="{{ col }}" value="{{ fila[col] }}">
+                <input type="text" class="form-control" name="{{ col }}" value="{{ fila[col] | string | replace(' 00:00:00', '') }}">
             </div>
             {% endfor %}
             <div class="d-flex gap-2 mt-4">

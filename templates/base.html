@@ -4,12 +4,10 @@
     <meta charset="UTF-8">
     <title>Maritime Contractors - Sistema de Datos</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="d-flex flex-column min-vh-100 bg-light">
@@ -18,12 +16,23 @@
         <div class="container d-flex align-items-center justify-content-between">
             <div class="d-flex align-items-center">
                 <img src="{{ url_for('static', filename='maritime_header.png') }}" alt="Logo Header" style="height: 50px; margin-right: 20px;">
-                <h4 class="m-0" style="color: var(--azul-marino); font-weight: 700;">Control de Rendimiento</h4>
+                <h4 class="m-0" style="color: var(--azul-marino); font-weight: 700;">Sistema de Control y Gestion de Datos </h4>
             </div>
         </div>
     </header>
 
     <main class="container flex-grow-1 mb-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                    <strong>Aviso:</strong> {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
         {% block content %}{% endblock %}
     </main>
 
@@ -34,6 +43,5 @@
             <p class="text-muted" style="font-size: 0.85rem;">Sistema Interno de Gestión y Depuración de Datos</p>
         </div>
     </footer>
-
 </body>
 </html>
