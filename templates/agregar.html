@@ -2,36 +2,36 @@
 {% block content %}
 <div class="card card-custom p-4 shadow-sm mx-auto" style="max-width: 900px;">
     <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
-        <h3 class="m-0" style="color: var(--azul-marino);">✏️ Modificar RDM Individual</h3>
+        <h3 class="m-0" style="color: var(--azul-marino);">📝 Registrar RDM Individual</h3>
         <a href="/datos" class="btn btn-outline-secondary fw-bold shadow-sm">Volver a la Tabla</a>
     </div>
     
-    <form method="POST">
+    <form action="/agregar" method="POST">
         
         <h5 class="text-primary mb-3 border-bottom pb-2">1. Información de la RDM</h5>
         <div class="row mb-4">
             <div class="col-md-3 mb-3">
                 <label class="fw-bold text-muted mb-1">RDM #</label>
-                <input type="text" name="RDM #" value="{{ registro['RDM #'] if registro['RDM #'] is not none else '' }}" class="form-control border-primary shadow-sm" required>
+                <input type="text" name="RDM #" class="form-control border-primary shadow-sm" required>
             </div>
             <div class="col-md-3 mb-3">
                 <label class="fw-bold text-muted mb-1">Estado</label>
                 <select name="Estado" class="form-select border-primary shadow-sm" required>
-                    <option value="Por Ejecutar" {% if registro['Estado']|lower == 'por ejecutar' or registro['Estado']|lower == 'por pagar' %}selected{% endif %}>Por Pagar</option>
-                    <option value="Ejecutada" {% if registro['Estado']|lower == 'ejecutada' %}selected{% endif %}>Ejecutada</option>
+                    <option value="Por Ejecutar">Por Pagar</option>
+                    <option value="Ejecutada">Ejecutada</option>
                 </select>
             </div>
             <div class="col-md-3 mb-3">
                 <label class="fw-bold text-muted mb-1">Prioridad</label>
                 <select name="Prioridad" class="form-select border-primary shadow-sm">
-                    <option value="Baja" {% if registro['Prioridad']|lower == 'baja' %}selected{% endif %}>Baja</option>
-                    <option value="Normal" {% if registro['Prioridad']|lower == 'normal' or not registro['Prioridad'] %}selected{% endif %}>Normal</option>
-                    <option value="Critico" {% if registro['Prioridad']|lower == 'critico' or registro['Prioridad']|lower == 'crítico' %}selected{% endif %}>Crítico</option>
+                    <option value="Baja">Baja</option>
+                    <option value="Normal" selected>Normal</option>
+                    <option value="Critico">Crítico</option>
                 </select>
             </div>
             <div class="col-md-3 mb-3">
                 <label class="fw-bold text-muted mb-1">Departamento</label>
-                <input type="text" name="Departamento" value="{{ registro['Departamento'] if registro['Departamento'] is not none else '' }}" class="form-control border-primary shadow-sm">
+                <input type="text" name="Departamento" class="form-control border-primary shadow-sm">
             </div>
         </div>
 
@@ -39,15 +39,15 @@
         <div class="row mb-4">
             <div class="col-md-4 mb-3">
                 <label class="fw-bold text-muted mb-1">Fecha (Descripción)</label>
-                <input type="date" name="Descripción" value="{{ registro['Descripción'] if registro['Descripción'] is not none else '' }}" class="form-control border-primary shadow-sm" required>
+                <input type="date" name="Descripción" class="form-control border-primary shadow-sm" required>
             </div>
             <div class="col-md-4 mb-3">
                 <label class="fw-bold text-muted mb-1">Desde</label>
-                <input type="number" name="Desde" value="{{ registro['Desde'] if registro['Desde'] is not none else '' }}" class="form-control border-primary shadow-sm" step="any">
+                <input type="number" name="Desde" class="form-control border-primary shadow-sm" step="any">
             </div>
             <div class="col-md-4 mb-3">
                 <label class="fw-bold text-muted mb-1">Hasta</label>
-                <input type="number" name="Hasta" value="{{ registro['Hasta'] if registro['Hasta'] is not none else '' }}" class="form-control border-primary shadow-sm" step="any">
+                <input type="number" name="Hasta" class="form-control border-primary shadow-sm" step="any">
             </div>
         </div>
 
@@ -55,44 +55,44 @@
         <div class="row mb-4">
             <div class="col-md-3 mb-3">
                 <label class="fw-bold text-muted mb-1">Código Sistemas</label>
-                <input type="text" name="Codigo Sistemas" value="{{ registro['Codigo Sistemas'] if registro['Codigo Sistemas'] is not none else '' }}" class="form-control border-primary shadow-sm">
+                <input type="text" name="Codigo Sistemas" class="form-control border-primary shadow-sm">
             </div>
             <div class="col-md-9 mb-3">
                 <label class="fw-bold text-muted mb-1">Código (Descripción del Material)</label>
-                <input type="text" name="Código" value="{{ registro['Código'] if registro['Código'] is not none else '' }}" class="form-control border-primary shadow-sm" required>
+                <input type="text" name="Código" class="form-control border-primary shadow-sm" required>
             </div>
             
             <div class="col-md-3 mb-3">
                 <label class="fw-bold text-muted mb-1">Cant. Orig.</label>
-                <input type="text" name="Cant. orig." value="{{ registro['Cant. orig.'] if registro['Cant. orig.'] is not none else '' }}" class="form-control border-primary shadow-sm" step="any">
+                <input type="text" name="Cant. orig." class="form-control border-primary shadow-sm" step="any">
             </div>
             <div class="col-md-2 mb-3">
                 <label class="fw-bold text-muted mb-1">UM</label>
                 <select name="UM" class="form-select border-primary shadow-sm">
                     <option value="">...</option>
                     {% for opcion in ['PZE', 'ZZ', 'CT', 'PA', 'BG', 'KT', 'DR', 'GLL', 'PL', 'KGM', 'PR', 'FOT', 'MTR', 'RO', 'PK', 'SET', 'LTR'] %}
-                        <option value="{{ opcion }}" {% if registro['UM'] and registro['UM']|upper == opcion %}selected{% endif %}>{{ opcion }}</option>
+                        <option value="{{ opcion }}">{{ opcion }}</option>
                     {% endfor %}
                 </select>
             </div>
             <div class="col-md-2 mb-3">
                 <label class="fw-bold text-muted mb-1">Usuario</label>
-                <input type="text" name="Usuario" value="{{ registro['Usuario'] if registro['Usuario'] is not none else '' }}" class="form-control border-primary shadow-sm">
+                <input type="text" name="Usuario" class="form-control border-primary shadow-sm">
             </div>
             <div class="col-md-3 mb-3">
                 <label class="fw-bold text-muted mb-1"># Parte (Fecha)</label>
-                <input type="date" name="# parte" value="{{ registro['# parte'] if registro['# parte'] is not none else '' }}" class="form-control border-primary shadow-sm">
+                <input type="date" name="# parte" class="form-control border-primary shadow-sm">
             </div>
             <div class="col-md-2 mb-3">
-                <label class="fw-bold text-muted mb-1">Rg</label>
-                <input type="text" name="Rg" value="{{ registro['Rg'] if registro['Rg'] is not none else '' }}" class="form-control border-primary shadow-sm">
+                <label class="fw-bold text-muted mb-1">Rg (Texto)</label>
+                <input type="text" name="Rg" class="form-control border-primary shadow-sm">
             </div>
         </div>
         
         <div class="d-flex justify-content-between mt-4 border-top pt-4" style="background-color: #f8f9fa; padding: 15px; border-radius: 8px;">
-            <a href="/datos" class="btn btn-secondary fw-bold shadow-sm px-4">Cancelar</a>
-            <button type="submit" class="btn btn-primary fw-bold shadow-sm px-5" style="font-size: 1.1rem;">
-                🔄 Guardar Cambios
+            <a href="/datos" class="btn btn-danger fw-bold shadow-sm px-4">Cancelar</a>
+            <button type="submit" class="btn btn-success fw-bold shadow-sm px-5" style="font-size: 1.1rem;">
+                💾 Guardar RDM
             </button>
         </div>
     </form>

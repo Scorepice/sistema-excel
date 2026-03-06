@@ -1,73 +1,211 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card card-custom p-4 mb-5 text-center shadow-sm">
-    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
-        <h3 style="color: var(--azul-marino);">📈 Rendimiento RDM´S</h3>
-        <a href="/datos" class="btn btn-secondary fw-bold shadow-sm">Regresar a la Tabla</a>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<div class="card card-custom p-4 mb-5 shadow-sm">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3 flex-wrap gap-3">
+        <h3 class="m-0" style="color: var(--azul-marino);">📊 Panel Interactivo de RDM</h3>
+        <div class="btn-group shadow-sm">
+            <a href="/datos" class="btn btn-secondary fw-bold">Regresar a la Tabla</a>
+            <button onclick="descargarGraficaPDF()" class="btn btn-danger fw-bold">📄 Exportar Gráfica PDF</button>
+        </div>
     </div>
     
-    <div class="row">
-        <div class="col-md-6 mb-4">
-            <h5 class="text-success fw-bold mb-3">✅ RDM Ejecutadas</h5>
-            <div style="position: relative; height:50vh; width:100%">
-                <canvas id="graficaEjecutadas"></canvas>
-            </div>
+    <form method="GET" action="/dashboard" class="row mb-4 p-3 rounded align-items-end" style="background-color: #e9ecef; border: 1px solid #ced4da;">
+        <div class="col-md-4 mb-3 mb-md-0">
+            <label class="fw-bold text-muted mb-1">📅 Desde (Fecha Inicio):</label>
+            <input type="date" name="inicio" value="{{ inicio }}" class="form-control shadow-sm border-primary">
         </div>
+        <div class="col-md-4 mb-3 mb-md-0">
+            <label class="fw-bold text-muted mb-1">📅 Hasta (Fecha Fin):</label>
+            <input type="date" name="fin" value="{{ fin }}" class="form-control shadow-sm border-primary">
+        </div>
+        <div class="col-md-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary fw-bold shadow-sm w-100">🔍 Filtrar Fechas</button>
+            <a href="/dashboard" class="btn btn-outline-secondary fw-bold shadow-sm">Limpiar</a>
+        </div>
+    </form>
 
-        <div class="col-md-6 mb-4">
-            <h5 class="text-warning fw-bold mb-3">⏳ RDM Por Ejecutar</h5>
-            <div style="position: relative; height:50vh; width:100%">
-                <canvas id="graficaPorEjecutar"></canvas>
-            </div>
+    <div class="row mb-4 p-3 rounded" style="background-color: #f8f9fa; border: 1px solid #dee2e6;">
+        <div class="col-md-6 mb-3 mb-md-0">
+            <label class="fw-bold text-muted mb-1">1. ¿Qué datos deseas analizar?</label>
+            <select id="filtroDatos" class="form-select shadow-sm" onchange="actualizarGrafica()">
+                <option value="estatus">RDM Ejecutadas vs Por Ejecutar (Por Fecha)</option>
+                <option value="cruce">Volumen por Departamento (A través del Tiempo)</option>
+                <option value="depto">Total General por Departamento</option>
+            </select>
         </div>
+        <div class="col-md-6">
+            <label class="fw-bold text-muted mb-1">2. Estilo Visual</label>
+            <select id="tipoGrafica" class="form-select shadow-sm" onchange="actualizarGrafica()">
+                <option value="bar_horizontal">Barras Horizontales</option>
+                <option value="bar">Barras Verticales</option>
+                <option value="line">Línea de Tendencia</option>
+                <option value="doughnut">Gráfico Circular</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="contenedorGrafica" style="position: relative; height:60vh; width:100%; background: white;">
+        <canvas id="miGraficaMaestra"></canvas>
     </div>
 </div>
 
 <script>
-    // CONFIGURACIÓN CLAVE: indexAxis: 'y' pone las fechas en el eje vertical
-    const opcionesComunes = {
-        responsive: true, 
-        maintainAspectRatio: false,
-        indexAxis: 'y', 
-        scales: { 
-            x: { beginAtZero: true, ticks: { stepSize: 1 } } 
+    const dataEstatus = {{ data_estatus | tojson }};
+    const dataDepto = {{ data_depto | tojson }};
+    const dataCruce = {{ data_cruce | tojson }};
+    let graficaInstancia = null;
+
+    // Memoria inteligente: Recuerda los selectores
+    window.onload = function() {
+        if(localStorage.getItem('filtroDatosMemoria')) {
+            document.getElementById('filtroDatos').value = localStorage.getItem('filtroDatosMemoria');
+        }
+        if(localStorage.getItem('tipoGraficaMemoria')) {
+            document.getElementById('tipoGrafica').value = localStorage.getItem('tipoGraficaMemoria');
+        }
+        actualizarGrafica();
+    };
+
+    const pluginFondoBlanco = {
+        id: 'customCanvasBackgroundColor',
+        beforeDraw: (chart, args, options) => {
+            const {ctx} = chart;
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-over';
+            ctx.fillStyle = options.color || '#ffffff';
+            ctx.fillRect(0, 0, chart.width, chart.height);
+            ctx.restore();
         }
     };
 
-    // 1. GRÁFICA DE EJECUTADAS
-    const ctxEjecutadas = document.getElementById('graficaEjecutadas');
-    new Chart(ctxEjecutadas, {
-        type: 'bar',
-        data: {
-            labels: {{ labels_ejec|tojson }},
-            datasets: [{ 
-                label: 'Cantidad Ejecutadas', 
-                data: {{ valores_ejec|tojson }}, 
-                backgroundColor: 'rgba(40, 167, 69, 0.7)',
-                borderColor: '#28a745',
-                borderWidth: 2,
-                borderRadius: 4
-            }]
-        },
-        options: opcionesComunes
-    });
+    function actualizarGrafica() {
+        const filtro = document.getElementById('filtroDatos').value;
+        let tipo = document.getElementById('tipoGrafica').value;
+        
+        localStorage.setItem('filtroDatosMemoria', filtro);
+        localStorage.setItem('tipoGraficaMemoria', tipo);
+        
+        let indexAxis = 'x';
+        if (tipo === 'bar_horizontal') {
+            tipo = 'bar';
+            indexAxis = 'y';
+        }
 
-    // 2. GRÁFICA DE POR EJECUTAR
-    const ctxPorEjecutar = document.getElementById('graficaPorEjecutar');
-    new Chart(ctxPorEjecutar, {
-        type: 'bar',
-        data: {
-            labels: {{ labels_por|tojson }},
-            datasets: [{ 
-                label: 'Cantidad Por Ejecutar', 
-                data: {{ valores_por|tojson }}, 
-                backgroundColor: 'rgba(255, 193, 7, 0.7)',
-                borderColor: '#ffc107',
-                borderWidth: 2,
-                borderRadius: 4
-            }]
-        },
-        options: opcionesComunes
-    });
+        let chartLabels = [];
+        let chartDatasets = [];
+
+        if (filtro === 'estatus') {
+            chartLabels = dataEstatus.labels;
+            chartDatasets = [
+                { label: '✅ Ejecutadas', data: dataEstatus.ejecutadas, backgroundColor: '#28a745', borderColor: '#28a745' },
+                { label: '⏳ Por Ejecutar', data: dataEstatus.por_ejecutar, backgroundColor: '#ffc107', borderColor: '#e0a800' }
+            ];
+        } 
+        else if (filtro === 'cruce') {
+            chartLabels = dataCruce.labels;
+            chartDatasets = dataCruce.datasets;
+        } 
+        else if (filtro === 'depto') {
+            if (tipo === 'doughnut') {
+                // La Dona necesita un solo bloque para hacer las rebanadas
+                chartLabels = dataDepto.labels;
+                chartDatasets = [{
+                    label: 'Total RDM',
+                    data: dataDepto.valores,
+                    backgroundColor: dataDepto.colores, 
+                    borderColor: dataDepto.colores,
+                    borderWidth: 1
+                }];
+            } else if (tipo === 'line') {
+                // NUEVO: Si eligen Línea, estiramos los departamentos en la parte de abajo
+                chartLabels = dataDepto.labels; // TI, Talleres, Taladro... abajo
+                chartDatasets = [{
+                    label: 'Total Histórico por Departamento',
+                    data: dataDepto.valores,
+                    borderColor: '#aab7c4', // Una línea neutra que los conecte
+                    pointBackgroundColor: dataDepto.colores, // Los puntitos mantienen el color del departamento
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2,
+                    pointRadius: 7, // Puntos más grandes para que se vean bien
+                    borderWidth: 3,
+                    fill: false,
+                    tension: 0.1 // Línea un poco más recta entre categorías
+                }];
+            } else {
+                // Las Barras se agrupan para encender/apagar en la leyenda
+                chartLabels = ['Comparativa de Departamentos'];
+                chartDatasets = dataDepto.labels.map(function(depto, index) {
+                    return {
+                        label: depto,
+                        data: [dataDepto.valores[index]],
+                        backgroundColor: dataDepto.colores[index],
+                        borderColor: dataDepto.colores[index],
+                        borderWidth: 1
+                    };
+                });
+            }
+        }
+
+        if (graficaInstancia) {
+            graficaInstancia.destroy();
+        }
+
+        const ctx = document.getElementById('miGraficaMaestra');
+        
+        if (chartLabels.length === 0) {
+            ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+            ctx.getContext('2d').font = "20px Arial";
+            ctx.getContext('2d').fillText("No hay RDM en este rango de fechas.", 50, 50);
+            return;
+        }
+
+        graficaInstancia = new Chart(ctx, {
+            type: tipo,
+            data: { labels: chartLabels, datasets: chartDatasets },
+            plugins: [pluginFondoBlanco],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: indexAxis,
+                tension: 0.3,
+                plugins: { 
+                    customCanvasBackgroundColor: { color: 'white' },
+                    legend: { display: true } // Forzamos a que la leyenda siempre esté visible
+                },
+                scales: tipo !== 'doughnut' ? { 
+                    x: { beginAtZero: true, ticks: { stepSize: 1 } }, 
+                    y: { beginAtZero: true, ticks: { stepSize: 1 } } 
+                } : {}
+            }
+        });
+    }
+
+    function descargarGraficaPDF() {
+        const filtroTexto = document.getElementById('filtroDatos').options[document.getElementById('filtroDatos').selectedIndex].text;
+        const canvas = document.getElementById('miGraficaMaestra');
+        const imgData = canvas.toDataURL('image/png', 1.0);
+
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('landscape', 'mm', 'a4'); 
+        
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(16);
+        pdf.text("Reporte de Desempeño: " + filtroTexto, 15, 20);
+        
+        const inicio = document.querySelector('input[name="inicio"]').value;
+        const fin = document.querySelector('input[name="fin"]').value;
+        if(inicio || fin) {
+            pdf.setFontSize(11);
+            pdf.setTextColor(100);
+            pdf.text(`Filtro aplicado -> Desde: ${inicio || 'Inicio'} | Hasta: ${fin || 'Hoy'}`, 15, 27);
+            pdf.addImage(imgData, 'PNG', 15, 35, 260, 130);
+        } else {
+            pdf.addImage(imgData, 'PNG', 15, 30, 260, 130);
+        }
+        
+        pdf.save("Reporte_Grafico_RDM.pdf");
+    }
 </script>
 {% endblock %}

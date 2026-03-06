@@ -1,32 +1,21 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="d-flex justify-content-center align-items-center" style="min-height: 50vh;">
-    <div class="card card-custom p-5 text-center" style="max-width: 500px; width: 100%;">
-        <h3 class="mb-3" style="color: var(--azul-marino);">📊 Carga de Base de Datos</h3>
-        <p class="text-muted mb-4">Sube el archivo Excel oficial al sistema.</p>
-        
-        <form action="/subir" method="POST" enctype="multipart/form-data" id="formCarga">
-            <input type="file" name="archivo" class="form-control mb-4" accept=".xlsx" required>
-            
-            <button type="submit" id="btnCargar" class="btn btn-primary-custom w-100 py-2 fw-bold shadow-sm d-flex justify-content-center align-items-center gap-2">
-                <span id="textoBtn">Procesar Información</span>
-                <span id="spinnerBtn" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-            </button>
+<div class="card card-custom p-4 shadow-sm mx-auto text-center" style="max-width: 600px;">
+    
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
+        <h3 class="m-0" style="color: var(--azul-marino);">📥 Ingreso de Datos</h3>
+        <a href="/datos" class="btn btn-primary fw-bold shadow-sm">📊 Ver Base de Datos</a>
+    </div>
+    
+    <div class="p-3 mb-4 rounded" style="background-color: #f8f9fa; border: 1px solid #dee2e6;">
+        <h5 class="fw-bold mb-3 text-primary">Carga Masiva de RDM</h5>
+        <form action="/subir" method="POST" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label for="archivo" class="form-label text-muted">Selecciona tu archivo Excel con el reporte</label>
+                <input class="form-control border-primary shadow-sm" type="file" name="archivo" id="archivo" accept=".xlsx, .xls" required>
+            </div>
+            <button type="submit" class="btn btn-primary fw-bold shadow-sm w-100">📄 Cargar y Procesar Excel</button>
         </form>
-
-        <hr class="my-4">
-        <a href="/datos" class="btn btn-outline-secondary w-100 fw-bold shadow-sm">Ver Base de Datos Actual</a>
     </div>
 </div>
-
-<script>
-    document.getElementById('formCarga').addEventListener('submit', function() {
-        // Deshabilitar el botón para que no le den doble clic
-        document.getElementById('btnCargar').disabled = true;
-        // Cambiar el texto
-        document.getElementById('textoBtn').innerText = 'Procesando archivo...';
-        // Mostrar la ruedita
-        document.getElementById('spinnerBtn').classList.remove('d-none');
-    });
-</script>
 {% endblock %}
