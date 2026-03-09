@@ -26,16 +26,10 @@ def subir_excel():
         # Filtro Supremo: Destruye saltos de línea y espacios ocultos
         df.columns = [' '.join(str(c).split()) for c in df.columns]
         
-        # =========================================================
-        # CORRECCIÓN: Ahora sí le decimos cuáles son las verdaderas fechas
-        # =========================================================
         columnas_fecha = ['# parte', 'Descripción', 'Descripcion']
         for col in columnas_fecha:
             if col in df.columns:
-                # Convierte a fecha y deja en blanco si hay error
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%Y-%m-%d')
-        
-        # "Desde" y "Hasta" se quedan tal cual (como números)
         
         conn = sqlite3.connect(DB_NAME)
         df.to_sql('registros', conn, if_exists='append', index=False)
@@ -51,7 +45,8 @@ def subir_excel():
 def ver_datos():
     try:
         conn = get_db_connection()
-        filas = conn.execute("SELECT rowid, * FROM registros").fetchall()
+        # 🚀 MEJORA DE VELOCIDAD: Carga los últimos 500 para evitar que el buscador y la tabla colapsen
+        filas = conn.execute("SELECT rowid, * FROM registros ORDER BY rowid DESC LIMIT 500").fetchall()
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(registros)")
         columnas = [col[1] for col in cursor.fetchall()]
@@ -68,16 +63,15 @@ def dashboard():
         conn.close()
         
         col_estado = next((c for c in df.columns if 'estad' in c.lower() or 'esatad' in c.lower()), None)
-        col_fecha = next((c for c in df.columns if 'descripci' in c.lower() or 'desde' in c.lower()), None)
+        # Búsqueda más inteligente para la fecha
+        col_fecha = next((c for c in df.columns if 'descripci' in c.lower() or 'desde' in c.lower() or 'parte' in c.lower()), None)
         col_depto = next((c for c in df.columns if 'departamento' in c.lower()), None)
         
         if not col_estado or not col_fecha or not col_depto:
             return "<h3>⚠️ Faltan datos</h3><p>Asegúrate de tener las columnas: Estado, Descripción (Fecha) y Departamento.</p>"
             
-        # Convertimos la columna a fechas
         df['Fecha_Real'] = pd.to_datetime(df[col_fecha], errors='coerce')
         
-        # Filtro de rango de fechas
         inicio = request.args.get('inicio', '')
         fin = request.args.get('fin', '')
         
@@ -93,21 +87,13 @@ def dashboard():
 
         df['Mes'] = df['Fecha_Real'].dt.strftime('%Y-%m').fillna('Sin Fecha')
         
-        # ==========================================
-        # EL FILTRO ANTI-DUPLICADOS (Limpieza de texto)
-        # ==========================================
-        # 1. Convierte a texto (por si acaso).
-        # 2. .str.strip() -> Quita espacios accidentales al inicio y al final.
-        # 3. .str.upper() -> Convierte todo a MAYÚSCULAS para que coincidan siempre.
         df[col_depto] = df[col_depto].fillna('SIN DEPTO').astype(str).str.strip().str.upper()
         df[col_estado] = df[col_estado].fillna('PENDIENTE').astype(str).str.strip().str.upper()
 
-        # Asignación de colores
         deptos_unicos = df[col_depto].unique().tolist()
         paleta = ['#17659d', '#fd7e14', '#6f42c1', '#20c997', '#e83e8c', '#dc3545', '#0dcaf0', '#ffc107', '#28a745', '#6610f2']
         mapa_colores = {depto: paleta[i % len(paleta)] for i, depto in enumerate(deptos_unicos)}
 
-        # 1. ESTATUS POR FECHA
         meses_unicos = sorted(df['Mes'].unique().tolist())
         mask_ejec = df[col_estado].str.contains('EJECUTADA')
         data_estatus = {'labels': meses_unicos, 'ejecutadas': [], 'por_ejecutar': []}
@@ -116,12 +102,10 @@ def dashboard():
             data_estatus['ejecutadas'].append(int(subset[mask_ejec].shape[0]))
             data_estatus['por_ejecutar'].append(int(subset[~mask_ejec].shape[0]))
 
-        # 2. TOTAL POR DEPARTAMENTO
         depto_counts = df[col_depto].value_counts()
         colores_depto = [mapa_colores.get(d, '#cccccc') for d in depto_counts.index]
         data_depto = {'labels': depto_counts.index.astype(str).tolist(), 'valores': depto_counts.values.tolist(), 'colores': colores_depto}
 
-        # 3. DEPARTAMENTO POR FECHA
         pivot = pd.crosstab(df['Mes'], df[col_depto])
         data_cruce = {'labels': pivot.index.tolist(), 'datasets': []}
         for depto in pivot.columns:
@@ -147,28 +131,54 @@ def editar(id):
     conn.row_factory = sqlite3.Row 
     cursor = conn.cursor()
     
-    # Obtenemos las columnas dinámicamente
+    # 1. Obtenemos las columnas exactas de la base de datos
     cursor.execute("PRAGMA table_info(registros)")
-    columnas = [col[1] for col in cursor.fetchall()]
+    columnas_db = [col[1] for col in cursor.fetchall()]
 
     if request.method == 'POST':
-        datos = dict(request.form)
-        set_clause = ", ".join([f'"{k}" = ?' for k in datos.keys()])
-        valores = list(datos.values())
-        valores.append(id)
+        datos_html = dict(request.form)
+        datos_a_actualizar = {}
         
-        try:
-            cursor.execute(f"UPDATE registros SET {set_clause} WHERE rowid = ?", valores)
-            conn.commit()
-            flash('RDM actualizada correctamente.', 'success')
-        except Exception as e:
-            flash(f'Error al actualizar: {e}', 'danger')
-        finally:
-            conn.close()
+        # ==========================================
+        # TRADUCTOR INTELIGENTE DE COLUMNAS (Para Editar)
+        # ==========================================
+        # Comparamos ignorando mayúsculas, puntos y espacios
+        for col_db in columnas_db:
+            col_db_limpia = col_db.lower().replace('.', '').replace(' ', '').strip()
             
+            for key_html, valor in datos_html.items():
+                key_html_limpia = key_html.lower().replace('.', '').replace(' ', '').strip()
+                
+                # Si hacen match, preparamos el dato para actualizar
+                if col_db_limpia == key_html_limpia:
+                    if valor.strip() == '':
+                        datos_a_actualizar[col_db] = None 
+                    else:
+                        datos_a_actualizar[col_db] = valor
+                    break 
+
+        # Si el traductor logró emparejar datos, armamos la actualización
+        if datos_a_actualizar:
+            set_clause = ", ".join([f'"{k}" = ?' for k in datos_a_actualizar.keys()])
+            valores = list(datos_a_actualizar.values())
+            valores.append(id) # Agregamos el ID al final para el WHERE
+            
+            try:
+                cursor.execute(f"UPDATE registros SET {set_clause} WHERE rowid = ?", valores)
+                conn.commit()
+                flash('¡RDM actualizada correctamente!', 'success')
+            except Exception as e:
+                print("\n" + "="*50)
+                print(f"⚠️ ERROR AL ACTUALIZAR MANUALMENTE: {e}")
+                print("="*50 + "\n")
+                flash('Error al actualizar en la base de datos.', 'danger')
+        else:
+            flash('No se encontraron datos válidos para actualizar.', 'warning')
+
+        conn.close()
         return redirect('/datos')
 
-    # Buscamos los datos actuales para llenar el formulario
+    # Si es GET (solo entrar a la vista)
     cursor.execute("SELECT rowid, * FROM registros WHERE rowid = ?", (id,))
     registro = cursor.fetchone()
     conn.close()
@@ -177,9 +187,8 @@ def editar(id):
         flash('El registro no existe.', 'warning')
         return redirect('/datos')
 
-    # ¡ESTA ES LA LÍNEA CLAVE QUE ARREGLA EL ERROR!
-    # Aquí le enviamos el 'registro' y las 'columnas' al HTML
-    return render_template('editar.html', registro=registro, columnas=columnas)
+    return render_template('editar.html', registro=registro, columnas=columnas_db)
+
 @app.route('/agregar', methods=['GET', 'POST'])
 def agregar():
     conn = get_db_connection()
@@ -192,28 +201,53 @@ def agregar():
         flash('La base de datos está vacía. Sube un Excel primero para crear la estructura.', 'warning')
         return redirect('/')
         
-    columnas = [col[1] for col in columnas_info]
+    columnas_db = [col[1] for col in columnas_info]
 
     if request.method == 'POST':
-        datos = dict(request.form)
-        columnas_str = ", ".join([f'"{k}"' for k in datos.keys()])
-        placeholders = ", ".join(["?" for _ in datos])
-        valores = list(datos.values())
+        datos_html = dict(request.form)
+        datos_a_guardar = {}
+        
+        # ==========================================
+        # TRADUCTOR INTELIGENTE DE COLUMNAS (Nivel Dios)
+        # ==========================================
+        # Comparamos el HTML y la BD ignorando mayúsculas, puntos Y ESPACIOS
+        for col_db in columnas_db:
+            # Le agregamos .replace(' ', '') para destruir los espacios
+            col_db_limpia = col_db.lower().replace('.', '').replace(' ', '').strip()
+            
+            for key_html, valor in datos_html.items():
+                # Le agregamos .replace(' ', '') aquí también
+                key_html_limpia = key_html.lower().replace('.', '').replace(' ', '').strip()
+                
+                # Si hacen "match" (ej: "cantorig" con "cantorig"), lo preparamos para guardar
+                if col_db_limpia == key_html_limpia:
+                    if valor.strip() == '':
+                        datos_a_guardar[col_db] = None 
+                    else:
+                        datos_a_guardar[col_db] = valor
+                    break
+
+        # Construimos la orden SQL solo con los datos que sí existen en la BD
+        columnas_str = ", ".join([f'"{k}"' for k in datos_a_guardar.keys()])
+        placeholders = ", ".join(["?" for _ in datos_a_guardar])
+        valores = list(datos_a_guardar.values())
         
         try:
-            conn.execute(f"INSERT INTO registros ({columnas_str}) VALUES ({placeholders})", valores)
+            cursor.execute(f"INSERT INTO registros ({columnas_str}) VALUES ({placeholders})", valores)
             conn.commit()
-            flash('RDM registrada correctamente.', 'success')
+            flash('¡RDM registrada y guardada correctamente!', 'success')
         except Exception as e:
-            flash(f'Error al guardar: {e}', 'danger')
+            print("\n" + "="*50)
+            print(f"⚠️ ERROR AL GUARDAR MANUALMENTE: {e}")
+            print("="*50 + "\n")
+            flash(f'Error al guardar en la base de datos.', 'danger')
         finally:
             conn.close()
             
         return redirect('/datos')
     
     conn.close()
-    return render_template('agregar.html', columnas=columnas)
-
+    return render_template('agregar.html', columnas=columnas_db)
 @app.route('/eliminar/<int:id>')
 def eliminar(id):
     conn = get_db_connection()
@@ -256,60 +290,77 @@ def generar_reporte(tipo):
         return send_file(ruta, as_attachment=True)
     
     elif tipo == 'pdf':
-        # Tamaño de hoja A3 Horizontal
         pdf = FPDF(orientation="L", format="A3")
         pdf.add_page()
         
-        pdf.set_font("Arial", style="B", size=14)
+        # ==========================================
+        # NUEVO: AGREGAR EL LOGO A LA ESQUINA DEL PDF
+        # ==========================================
+        # Verificamos que la imagen exista para evitar errores
+        if os.path.exists('static/maritime_foot.png'):
+            # x=15 (distancia desde la izquierda)
+            # y=8 (distancia desde arriba)
+            # w=25 (ancho de la imagen en milímetros)
+            pdf.image('static/maritime_foot.png', x=15, y=3, w=40)
+        
+        # Mover el título un poco hacia abajo para que se alinee bonito con el logo
+        pdf.set_font("Arial", style="B", size=16)
         titulo = f"Reporte de RDM´S : '{busqueda}'" if busqueda else "Reporte de RDM´S General"
-        pdf.cell(0, 10, txt=titulo, ln=True, align='C')
-        pdf.ln(5)
+        
+        # Imprimimos el título centrado
+        pdf.cell(0, 15, txt=titulo, ln=True, align='C')
+        pdf.ln(5) # Espacio en blanco antes de que empiece la tabla
 
-        # 1. DISTRIBUCIÓN MILIMÉTRICA EXACTA
+        anchos = []
+        # 1. DISTRIBUCIÓN MILIMÉTRICA EXACTA (Inteligente y Ampliada)
+        anchos = []
+        # 1. DISTRIBUCIÓN MILIMÉTRICA EXACTA (Balanceada para MVP)
         anchos = []
         for col in df.columns:
-            nombre = str(col).lower()
-            if nombre in ['rg', 'um']:
-                anchos.append(10)
-            elif nombre in ['usuario']:
-                anchos.append(14)
-            elif nombre in ['cant. orig.', 'cant', 'rdm #', 'prioridad']: # Quitamos 'estado' de aquí
-                anchos.append(18)
-            elif nombre in ['desde', 'hasta', 'fecha', '# parte', 'descripción', 'descripcion']:
-                anchos.append(20)
-            elif nombre in ['estado', 'esatado']:
-                # AQUÍ ESTÁ EL CAMBIO: Le damos 26 milímetros exclusivos a Estado
-                anchos.append(26)
-            elif 'codigo sistemas' in nombre:
-                anchos.append(26)
-            elif nombre in ['departamento']:
-                anchos.append(28)
-            elif nombre == 'código' or nombre == 'codigo':
-                anchos.append(115) 
-            else:
-                anchos.append(20) 
+            nombre = str(col).lower().replace(' ', '').replace('.', '')
+            
+            if nombre == 'um': anchos.append(10)
+            elif nombre == 'rg': anchos.append(55)  # ⬆️ SÚPER GIGANTE: Subió de 45 a 60 mm
+            elif nombre == 'usuario': anchos.append(12)
+            elif 'cant' in nombre: anchos.append(25) # ⬇️ REDUCIDO: Bajó de 38 a 25 mm
+            elif 'rdm' in nombre or 'prioridad' in nombre: anchos.append(16)
+            elif nombre in ['desde', 'hasta']: anchos.append(14)
+            elif nombre in ['fecha', 'parte', 'descripción', 'descripcion']: anchos.append(18)
+            elif 'estado' in nombre or 'esatado' in nombre: anchos.append(22)
+            elif 'codigosistemas' in nombre: anchos.append(22)
+            elif 'departamento' in nombre: anchos.append(26)
+            elif 'código' in nombre or 'codigo' in nombre: anchos.append(68) # ⬇️ Ajustado levemente
+            else: anchos.append(20)
 
-        # Encabezados de la tabla
+        # 2. ENCABEZADOS DE LA TABLA 
         pdf.set_font("Arial", style="B", size=8)
         for i, col in enumerate(df.columns):
-            pdf.cell(anchos[i], 8, str(col)[:int(anchos[i]*0.6)], border=1, align='C')
+            texto_col = str(col).replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'").replace('–', '-').replace('—', '-')
+            texto_col = texto_col.encode('latin-1', errors='ignore').decode('latin-1')
+            pdf.cell(anchos[i], 8, texto_col[:int(anchos[i]*0.75)], border=1, align='C')
         pdf.ln()
 
-        # Rellenar los datos
+        # 3. RELLENAR LOS DATOS (Con tijera calibrada anti-choques)
         pdf.set_font("Arial", size=7)
         for _, row in df.iterrows():
             for i, val in enumerate(row):
                 texto = str(val).replace(' 00:00:00', '')
-                if texto == 'nan' or texto == 'None': 
-                    texto = '' 
+                if texto == 'nan' or texto == 'None': texto = '' 
                 
-                # Freno anti-desbordamiento (0.55)
-                limite = int(anchos[i] * 0.55) 
-                pdf.cell(anchos[i], 7, texto[:limite], border=1)
+                if texto.endswith('.0'):
+                    texto = texto[:-2]
+                
+                texto_limpio = texto.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'").replace('–', '-').replace('—', '-')
+                texto_limpio = texto_limpio.encode('latin-1', errors='ignore').decode('latin-1')
+                
+                # ✂️ TIJERA CALIBRADA A 0.65: Evita que las letras anchas invadan la siguiente columna
+                limite = int(anchos[i] * 0.65) 
+                pdf.cell(anchos[i], 7, texto_limpio[:limite], border=1)
             pdf.ln()
 
+        # 4. EXPORTAR Y RETORNAR EL ARCHIVO AL USUARIO
         pdf.output("reporte.pdf")
         return send_file("reporte.pdf", as_attachment=True)
-# ¡ESTAS DOS LÍNEAS SON VITALES PARA QUE ARRANQUE!
+
 if __name__ == '__main__':
     app.run(debug=True)

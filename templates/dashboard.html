@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <div class="card card-custom p-4 mb-5 shadow-sm">
@@ -96,45 +98,67 @@
         let chartLabels = [];
         let chartDatasets = [];
 
+        // LÓGICA DE DATOS
         if (filtro === 'estatus') {
-            chartLabels = dataEstatus.labels;
-            chartDatasets = [
-                { label: '✅ Ejecutadas', data: dataEstatus.ejecutadas, backgroundColor: '#28a745', borderColor: '#28a745' },
-                { label: '⏳ Por Ejecutar', data: dataEstatus.por_ejecutar, backgroundColor: '#ffc107', borderColor: '#e0a800' }
-            ];
+            if (tipo === 'doughnut') {
+                const totalEjec = dataEstatus.ejecutadas.reduce((a, b) => a + b, 0);
+                const totalPorEjec = dataEstatus.por_ejecutar.reduce((a, b) => a + b, 0);
+                
+                chartLabels = ['✅ Ejecutadas', '⏳ Por Ejecutar'];
+                chartDatasets = [{
+                    data: [totalEjec, totalPorEjec],
+                    backgroundColor: ['#28a745', '#ffc107'],
+                    borderColor: '#ffffff',
+                    borderWidth: 2
+                }];
+            } else {
+                chartLabels = dataEstatus.labels;
+                chartDatasets = [
+                    { label: '✅ Ejecutadas', data: dataEstatus.ejecutadas, backgroundColor: '#28a745', borderColor: '#28a745' },
+                    { label: '⏳ Por Ejecutar', data: dataEstatus.por_ejecutar, backgroundColor: '#ffc107', borderColor: '#e0a800' }
+                ];
+            }
         } 
         else if (filtro === 'cruce') {
-            chartLabels = dataCruce.labels;
-            chartDatasets = dataCruce.datasets;
-        } 
-        else if (filtro === 'depto') {
             if (tipo === 'doughnut') {
-                // La Dona necesita un solo bloque para hacer las rebanadas
                 chartLabels = dataDepto.labels;
                 chartDatasets = [{
                     label: 'Total RDM',
                     data: dataDepto.valores,
                     backgroundColor: dataDepto.colores, 
-                    borderColor: dataDepto.colores,
-                    borderWidth: 1
+                    borderColor: '#ffffff',
+                    borderWidth: 2
+                }];
+            } else {
+                chartLabels = dataCruce.labels;
+                chartDatasets = dataCruce.datasets;
+            }
+        } 
+        else if (filtro === 'depto') {
+            if (tipo === 'doughnut') {
+                chartLabels = dataDepto.labels;
+                chartDatasets = [{
+                    label: 'Total RDM',
+                    data: dataDepto.valores,
+                    backgroundColor: dataDepto.colores, 
+                    borderColor: '#ffffff',
+                    borderWidth: 2
                 }];
             } else if (tipo === 'line') {
-                // NUEVO: Si eligen Línea, estiramos los departamentos en la parte de abajo
-                chartLabels = dataDepto.labels; // TI, Talleres, Taladro... abajo
+                chartLabels = dataDepto.labels;
                 chartDatasets = [{
                     label: 'Total Histórico por Departamento',
                     data: dataDepto.valores,
-                    borderColor: '#aab7c4', // Una línea neutra que los conecte
-                    pointBackgroundColor: dataDepto.colores, // Los puntitos mantienen el color del departamento
+                    borderColor: '#aab7c4',
+                    pointBackgroundColor: dataDepto.colores,
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 2,
-                    pointRadius: 7, // Puntos más grandes para que se vean bien
+                    pointRadius: 7,
                     borderWidth: 3,
                     fill: false,
-                    tension: 0.1 // Línea un poco más recta entre categorías
+                    tension: 0.1
                 }];
             } else {
-                // Las Barras se agrupan para encender/apagar en la leyenda
                 chartLabels = ['Comparativa de Departamentos'];
                 chartDatasets = dataDepto.labels.map(function(depto, index) {
                     return {
@@ -148,6 +172,9 @@
             }
         }
 
+        // ==========================================
+        // LA ORDEN DE DIBUJAR QUE SE HABÍA BORRADO
+        // ==========================================
         if (graficaInstancia) {
             graficaInstancia.destroy();
         }
@@ -172,7 +199,7 @@
                 tension: 0.3,
                 plugins: { 
                     customCanvasBackgroundColor: { color: 'white' },
-                    legend: { display: true } // Forzamos a que la leyenda siempre esté visible
+                    legend: { display: true }
                 },
                 scales: tipo !== 'doughnut' ? { 
                     x: { beginAtZero: true, ticks: { stepSize: 1 } }, 

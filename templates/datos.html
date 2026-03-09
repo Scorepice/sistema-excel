@@ -41,7 +41,9 @@
         <table id="miTabla" class="table table-striped table-hover align-middle text-nowrap" style="width:100%">
             <thead class="table-dark">
                 <tr>
-                    {% for col in columnas %} <th>{{ col }}</th> {% endfor %}
+                    {% for col in columnas %} 
+                        <th>{{ col }}</th> 
+                    {% endfor %}
                     <th>Acciones</th>
                 </tr>
             </thead>
@@ -49,7 +51,16 @@
                 {% for fila in filas %}
                 <tr>
                     {% for col in columnas %} 
-                        <td>{{ fila[col] | string | replace(' 00:00:00', '') }}</td> 
+                        <td>
+                            {% set valor = fila[col] | string | replace(' 00:00:00', '') %}
+                            {% if valor.endswith('.0') %}
+                                {{ valor[:-2] }}
+                            {% elif valor == 'None' or valor == 'nan' %}
+                                
+                            {% else %}
+                                {{ valor }}
+                            {% endif %}
+                        </td> 
                     {% endfor %}
                     <td>
                         <a href="/editar/{{ fila['rowid'] }}" class="btn btn-sm btn-warning fw-bold">Editar</a>
