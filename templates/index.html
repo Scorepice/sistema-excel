@@ -2,7 +2,7 @@
 {% block content %}
 
 <style>
-    /* 1. Ponemos la imagen de fondo cubriendo toda la pantalla */
+    /* imagen de fondo cubriendo toda la pantalla */
     body {
         background-image: url("{{ url_for('static', filename='RIG_42.jpg') }}");
         background-size: cover;
@@ -11,7 +11,7 @@
         background-repeat: no-repeat;
     }
 
-    /* 2. Hacemos la tarjeta semi-transparente con efecto cristal para que no tape la imagen */
+    /*tarjeta semi-transparente con efecto cristal para que no tape la imagen */
     .card-glass {
         background-color: rgba(255, 255, 255, 0.85) !important; /* 85% de opacidad */
         backdrop-filter: blur(4px); /* Difumina un poco lo que hay detrás del recuadro */
@@ -22,13 +22,13 @@
 <div class="card card-custom card-glass p-4 shadow-lg mx-auto text-center mt-4" style="max-width: 600px;">
     
     <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-secondary pb-3">
-        <h3 class="m-0" style="color: var(--azul-marino); text-shadow: 1px 1px 2px rgba(255,255,255,0.8);">📥 Ingreso de Datos</h3>
-        <a href="/datos" class="btn btn-primary fw-bold shadow-sm">📊 Ver Base de Datos</a>
+        <h3 class="m-0" style="color: var(--azul-marino); text-shadow: 1px 1px 2px rgba(255,255,255,0.8);">📥 {{ module_name }}</h3>
+        <a href="{{ url_for('ver_datos', modulo=modulo) }}" class="btn btn-primary fw-bold shadow-sm">📊 Ver Base de Datos</a>
     </div>
     
     <div class="p-3 mb-4 rounded" style="background-color: rgba(248, 249, 250, 0.7); border: 1px solid rgba(222, 226, 230, 0.5);">
-        <h5 class="fw-bold mb-3 text-primary">Carga Masiva de RDM</h5>
-        <form action="/subir" method="POST" enctype="multipart/form-data">
+        <h5 class="fw-bold mb-3 text-primary">Carga de Archivo</h5>
+        <form action="{{ url_for('subir_excel', modulo=modulo) }}" method="POST" enctype="multipart/form-data">
             <div class="mb-3">
                 <label for="archivo" class="form-label text-dark fw-bold">Selecciona tu archivo Excel con el reporte</label>
                 <input class="form-control border-primary shadow-sm" type="file" name="archivo" id="archivo" accept=".xlsx, .xls" required>
@@ -45,8 +45,8 @@
 
     <div class="p-3 rounded" style="background-color: rgba(232, 245, 233, 0.7); border: 1px solid rgba(200, 230, 201, 0.5);">
         <h5 class="fw-bold mb-3 text-success">Opción 2: Carga Individual</h5>
-        <p class="text-dark mb-3">Registra una RDM de emergencia directamente en la base de datos.</p>
-        <a href="/agregar" class="btn btn-success fw-bold shadow-sm w-100">➕ Registrar RDM Manualmente</a>
+        <p class="text-dark mb-3">Registra manualmente un dato para este modulo.</p>
+        <a href="{{ url_for('agregar', modulo=modulo) }}" class="btn btn-success fw-bold shadow-sm w-100">➕ Registrar Manualmente</a>
     </div>
 </div>
 {% endblock %}

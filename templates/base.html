@@ -44,11 +44,12 @@
             </a>
             <div class="d-flex">
                 <ul class="navbar-fluid-nav navbar-nav me-auto mb-2 mb-lg-0">
-                    {% if request.path != '/' %}
-                    <li class="nav-item"> <a class="nav-link fw-bold text-naranja" href="/dashboard">📈 Dashboard</a> </li>
-                    <li class="nav-item"> <a class="nav-link fw-bold" href="/datos">📂 Datos</a> </li>
+                    {% if modulo %}
+                    <li class="nav-item"> <a class="nav-link fw-bold text-naranja" href="{{ url_for('dashboard', modulo=modulo) }}">📈 Dashboard</a> </li>
+                    <li class="nav-item"> <a class="nav-link fw-bold" href="{{ url_for('ver_datos', modulo=modulo) }}">📂 Datos</a> </li>
+                    <li class="nav-item"> <a class="nav-link fw-bold" href="{{ url_for('index', modulo=modulo) }}">📥 Carga</a> </li>
                     {% endif %}
-                    
+
                     <li class="nav-item"> <a class="nav-link fw-bold" href="/">🏠 Inicio</a> </li>
                 </ul>
             </div>
@@ -67,6 +68,8 @@
             {% endif %}
         {% endwith %}
     </div>
+
+    {% block extra_head %}{% endblock %}
 
     <div class="container-fluid p-4">
         {% block content %} {% endblock %}

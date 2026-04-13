@@ -6,14 +6,14 @@
 
 <div class="card card-custom p-4 mb-5 shadow-sm">
     <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3 flex-wrap gap-3">
-        <h3 class="m-0" style="color: var(--azul-marino);">📊 Panel Interactivo de RDM</h3>
+        <h3 class="m-0" style="color: var(--azul-marino);">📊 Panel Interactivo: {{ module_name }}</h3>
         <div class="btn-group shadow-sm">
-            <a href="/datos" class="btn btn-secondary fw-bold">Regresar a la Tabla</a>
+            <a href="{{ url_for('ver_datos', modulo=modulo) }}" class="btn btn-secondary fw-bold">Regresar a la Tabla</a>
             <button onclick="descargarGraficaPDF()" class="btn btn-danger fw-bold">📄 Exportar Gráfica PDF</button>
         </div>
     </div>
     
-    <form method="GET" action="/dashboard" class="row mb-4 p-3 rounded align-items-end" style="background-color: #e9ecef; border: 1px solid #ced4da;">
+    <form method="GET" action="{{ url_for('dashboard', modulo=modulo) }}" class="row mb-4 p-3 rounded align-items-end" style="background-color: #e9ecef; border: 1px solid #ced4da;">
         <div class="col-md-4 mb-3 mb-md-0">
             <label class="fw-bold text-muted mb-1">📅 Desde (Fecha Inicio):</label>
             <input type="date" name="inicio" value="{{ inicio }}" class="form-control shadow-sm border-primary">
@@ -24,7 +24,7 @@
         </div>
         <div class="col-md-4 d-flex gap-2">
             <button type="submit" class="btn btn-primary fw-bold shadow-sm w-100">🔍 Filtrar Fechas</button>
-            <a href="/dashboard" class="btn btn-outline-secondary fw-bold shadow-sm">Limpiar</a>
+            <a href="{{ url_for('dashboard', modulo=modulo) }}" class="btn btn-outline-secondary fw-bold shadow-sm">Limpiar</a>
         </div>
     </form>
 
@@ -32,7 +32,7 @@
         <div class="col-md-6 mb-3 mb-md-0">
             <label class="fw-bold text-muted mb-1">1. ¿Qué datos deseas analizar?</label>
             <select id="filtroDatos" class="form-select shadow-sm" onchange="actualizarGrafica()">
-                <option value="estatus">RDM Ejecutadas vs Por Ejecutar (Por Fecha)</option>
+                <option value="estatus">RDM por Estado (Por Fecha)</option>
                 <option value="cruce">Volumen por Departamento (A través del Tiempo)</option>
                 <option value="depto">Total General por Departamento</option>
             </select>
@@ -54,6 +54,7 @@
 </div>
 
 <script>
+    const moduloActual = "{{ modulo }}";
     const dataEstatus = {{ data_estatus | tojson }};
     const dataDepto = {{ data_depto | tojson }};
     const dataCruce = {{ data_cruce | tojson }};
@@ -61,11 +62,13 @@
 
     // Memoria inteligente: Recuerda los selectores
     window.onload = function() {
-        if(localStorage.getItem('filtroDatosMemoria')) {
-            document.getElementById('filtroDatos').value = localStorage.getItem('filtroDatosMemoria');
+        const keyFiltro = `filtroDatosMemoria_${moduloActual}`;
+        const keyTipo = `tipoGraficaMemoria_${moduloActual}`;
+        if(localStorage.getItem(keyFiltro)) {
+            document.getElementById('filtroDatos').value = localStorage.getItem(keyFiltro);
         }
-        if(localStorage.getItem('tipoGraficaMemoria')) {
-            document.getElementById('tipoGrafica').value = localStorage.getItem('tipoGraficaMemoria');
+        if(localStorage.getItem(keyTipo)) {
+            document.getElementById('tipoGrafica').value = localStorage.getItem(keyTipo);
         }
         actualizarGrafica();
     };
@@ -85,9 +88,11 @@
     function actualizarGrafica() {
         const filtro = document.getElementById('filtroDatos').value;
         let tipo = document.getElementById('tipoGrafica').value;
+        const keyFiltro = `filtroDatosMemoria_${moduloActual}`;
+        const keyTipo = `tipoGraficaMemoria_${moduloActual}`;
         
-        localStorage.setItem('filtroDatosMemoria', filtro);
-        localStorage.setItem('tipoGraficaMemoria', tipo);
+        localStorage.setItem(keyFiltro, filtro);
+        localStorage.setItem(keyTipo, tipo);
         
         let indexAxis = 'x';
         if (tipo === 'bar_horizontal') {
@@ -103,11 +108,13 @@
             if (tipo === 'doughnut') {
                 const totalEjec = dataEstatus.ejecutadas.reduce((a, b) => a + b, 0);
                 const totalPorEjec = dataEstatus.por_ejecutar.reduce((a, b) => a + b, 0);
-                
-                chartLabels = ['✅ Ejecutadas', '⏳ Por Ejecutar'];
+                const totalPorCotizar = dataEstatus.por_cotizar.reduce((a, b) => a + b, 0);
+                const totalCotizadas = dataEstatus.cotizadas.reduce((a, b) => a + b, 0);
+
+                chartLabels = ['✅ Ejecutadas', '⏳ Por Ejecutar', '⏳ Por Cotizar', '💼 Cotizadas'];
                 chartDatasets = [{
-                    data: [totalEjec, totalPorEjec],
-                    backgroundColor: ['#28a745', '#ffc107'],
+                    data: [totalEjec, totalPorEjec, totalPorCotizar, totalCotizadas],
+                    backgroundColor: ['#28a745', '#ffc107', '#17a2b8', '#6f42c1'],
                     borderColor: '#ffffff',
                     borderWidth: 2
                 }];
@@ -115,7 +122,9 @@
                 chartLabels = dataEstatus.labels;
                 chartDatasets = [
                     { label: '✅ Ejecutadas', data: dataEstatus.ejecutadas, backgroundColor: '#28a745', borderColor: '#28a745' },
-                    { label: '⏳ Por Ejecutar', data: dataEstatus.por_ejecutar, backgroundColor: '#ffc107', borderColor: '#e0a800' }
+                    { label: '⏳ Por Ejecutar', data: dataEstatus.por_ejecutar, backgroundColor: '#ffc107', borderColor: '#e0a800' },
+                    { label: '⏳ Por Cotizar', data: dataEstatus.por_cotizar, backgroundColor: '#17a2b8', borderColor: '#138496' },
+                    { label: '💼 Cotizadas', data: dataEstatus.cotizadas, backgroundColor: '#6f42c1', borderColor: '#5a32d4' }
                 ];
             }
         } 
@@ -232,7 +241,7 @@
             pdf.addImage(imgData, 'PNG', 15, 30, 260, 130);
         }
         
-        pdf.save("Reporte_Grafico_RDM.pdf");
+        pdf.save(`Reporte_Grafico_${moduloActual}.pdf`);
     }
 </script>
 {% endblock %}

@@ -2,95 +2,46 @@
 {% block content %}
 <div class="card card-custom p-4 shadow-sm mx-auto" style="max-width: 900px;">
     <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
-        <h3 class="m-0" style="color: var(--azul-marino);">✏️ Modificar RDM Individual</h3>
-        <a href="/datos" class="btn btn-outline-secondary fw-bold shadow-sm">Volver a la Tabla</a>
+        <h3 class="m-0" style="color: var(--azul-marino);">✏️ Editar Registro: {{ module_name }}</h3>
+        <a href="{{ url_for('ver_datos', modulo=modulo) }}" class="btn btn-outline-secondary fw-bold shadow-sm">Volver a la Tabla</a>
     </div>
     
     <form method="POST">
-        
-        <h5 class="text-primary mb-3 border-bottom pb-2">1. Información de la RDM</h5>
+        <h5 class="text-primary mb-3 border-bottom pb-2">Campos del registro</h5>
         <div class="row mb-4">
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">RDM #</label>
-                <input type="text" name="RDM #" value="{{ registro['RDM #'] if registro['RDM #'] is not none else '' }}" class="form-control border-primary shadow-sm" required>
-            </div>
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Estado</label>
-                <select name="Estado" class="form-select border-primary shadow-sm" required>
-                    <option value="Por Ejecutar" {% if registro['Estado']|lower == 'por ejecutar' or registro['Estado']|lower == 'por pagar' %}selected{% endif %}>Por Pagar</option>
-                    <option value="Ejecutada" {% if registro['Estado']|lower == 'ejecutada' %}selected{% endif %}>Ejecutada</option>
-                </select>
-            </div>
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Prioridad</label>
-                <select name="Prioridad" class="form-select border-primary shadow-sm">
-                    <option value="Baja" {% if registro['Prioridad']|lower == 'baja' %}selected{% endif %}>Baja</option>
-                    <option value="Normal" {% if registro['Prioridad']|lower == 'normal' or not registro['Prioridad'] %}selected{% endif %}>Normal</option>
-                    <option value="Critico" {% if registro['Prioridad']|lower == 'critico' or registro['Prioridad']|lower == 'crítico' %}selected{% endif %}>Crítico</option>
-                </select>
-            </div>
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Departamento</label>
-                <input type="text" name="Departamento" value="{{ registro['Departamento'] if registro['Departamento'] is not none else '' }}" class="form-control border-primary shadow-sm">
-            </div>
-        </div>
+            {% for campo in campos %}
+            <div class="col-md-4 mb-3">
+                <label class="fw-bold text-muted mb-1">{{ campo.name }}</label>
+                {% set valor = registro[campo.name] if registro[campo.name] is not none else '' %}
 
-        <h5 class="text-primary mb-3 border-bottom pb-2">2. Fechas de Gestión</h5>
-        <div class="row mb-4">
-            <div class="col-md-4 mb-3">
-                <label class="fw-bold text-muted mb-1">Fecha (Descripción)</label>
-                <input type="date" name="Descripción" value="{{ registro['Descripción'] if registro['Descripción'] is not none else '' }}" class="form-control border-primary shadow-sm" required>
-            </div>
-            <div class="col-md-4 mb-3">
-                <label class="fw-bold text-muted mb-1">Desde</label>
-                <input type="number" name="Desde" value="{{ registro['Desde'] if registro['Desde'] is not none else '' }}" class="form-control border-primary shadow-sm" step="any">
-            </div>
-            <div class="col-md-4 mb-3">
-                <label class="fw-bold text-muted mb-1">Hasta</label>
-                <input type="number" name="Hasta" value="{{ registro['Hasta'] if registro['Hasta'] is not none else '' }}" class="form-control border-primary shadow-sm" step="any">
-            </div>
-        </div>
-
-        <h5 class="text-primary mb-3 border-bottom pb-2">3. Detalles del Material / Servicio</h5>
-        <div class="row mb-4">
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Código Sistemas</label>
-                <input type="text" name="Codigo Sistemas" value="{{ registro['Codigo Sistemas'] if registro['Codigo Sistemas'] is not none else '' }}" class="form-control border-primary shadow-sm">
-            </div>
-            <div class="col-md-9 mb-3">
-                <label class="fw-bold text-muted mb-1">Código (Descripción del Material)</label>
-                <input type="text" name="Código" value="{{ registro['Código'] if registro['Código'] is not none else '' }}" class="form-control border-primary shadow-sm" required>
-            </div>
-            
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Cant. Orig.</label>
-                <input type="text" name="Cant. orig." value="{{ registro['Cant. orig.'] if registro['Cant. orig.'] is not none else '' }}" class="form-control border-primary shadow-sm" step="any">
-            </div>
-            <div class="col-md-2 mb-3">
-                <label class="fw-bold text-muted mb-1">UM</label>
-                <select name="UM" class="form-select border-primary shadow-sm">
-                    <option value="">...</option>
-                    {% for opcion in ['PZE', 'ZZ', 'CT', 'PA', 'BG', 'KT', 'DR', 'GLL', 'PL', 'KGM', 'PR', 'FOT', 'MTR', 'RO', 'PK', 'SET', 'LTR'] %}
-                        <option value="{{ opcion }}" {% if registro['UM'] and registro['UM']|upper == opcion %}selected{% endif %}>{{ opcion }}</option>
-                    {% endfor %}
+                {% if campo.kind == 'estado_select' %}
+                <select name="{{ campo.name }}" class="form-select border-primary shadow-sm">
+                    <option value="" {% if not valor %}selected{% endif %}>...</option>
+                    <option value="Por Ejecutar" {% if valor|string|lower == 'por ejecutar' %}selected{% endif %}>Por Ejecutar</option>
+                    <option value="Ejecutada" {% if valor|string|lower == 'ejecutada' %}selected{% endif %}>Ejecutada</option>
+                    <option value="Por Cotizar" {% if valor|string|lower == 'por cotizar' %}selected{% endif %}>Por Cotizar</option>
+                    <option value="Cotizada" {% if valor|string|lower == 'cotizada' %}selected{% endif %}>Cotizada</option>
                 </select>
+                {% elif campo.kind == 'prioridad_select' %}
+                <select name="{{ campo.name }}" class="form-select border-primary shadow-sm">
+                    <option value="" {% if not valor %}selected{% endif %}>...</option>
+                    <option value="Baja" {% if valor|string|lower == 'baja' %}selected{% endif %}>Baja</option>
+                    <option value="Normal" {% if valor|string|lower == 'normal' %}selected{% endif %}>Normal</option>
+                    <option value="Critico" {% if valor|string|lower == 'critico' or valor|string|lower == 'crítico' %}selected{% endif %}>Critico</option>
+                </select>
+                {% elif campo.kind == 'date' %}
+                <input type="date" name="{{ campo.name }}" value="{{ valor|string|replace(' 00:00:00', '') }}" class="form-control border-primary shadow-sm">
+                {% elif campo.kind == 'number' %}
+                <input type="number" name="{{ campo.name }}" value="{{ valor }}" class="form-control border-primary shadow-sm" step="any">
+                {% else %}
+                <input type="text" name="{{ campo.name }}" value="{{ valor }}" class="form-control border-primary shadow-sm">
+                {% endif %}
             </div>
-            <div class="col-md-2 mb-3">
-                <label class="fw-bold text-muted mb-1">Usuario</label>
-                <input type="text" name="Usuario" value="{{ registro['Usuario'] if registro['Usuario'] is not none else '' }}" class="form-control border-primary shadow-sm">
-            </div>
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1"># Parte (Fecha)</label>
-                <input type="date" name="# parte" value="{{ registro['# parte'] if registro['# parte'] is not none else '' }}" class="form-control border-primary shadow-sm">
-            </div>
-            <div class="col-md-2 mb-3">
-                <label class="fw-bold text-muted mb-1">Rg</label>
-                <input type="text" name="Rg" value="{{ registro['Rg'] if registro['Rg'] is not none else '' }}" class="form-control border-primary shadow-sm">
-            </div>
+            {% endfor %}
         </div>
         
         <div class="d-flex justify-content-between mt-4 border-top pt-4" style="background-color: #f8f9fa; padding: 15px; border-radius: 8px;">
-            <a href="/datos" class="btn btn-secondary fw-bold shadow-sm px-4">Cancelar</a>
+            <a href="{{ url_for('ver_datos', modulo=modulo) }}" class="btn btn-secondary fw-bold shadow-sm px-4">Cancelar</a>
             <button type="submit" class="btn btn-primary fw-bold shadow-sm px-5" style="font-size: 1.1rem;">
                 🔄 Guardar Cambios
             </button>

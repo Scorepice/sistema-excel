@@ -3,7 +3,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <style>
-    /* Mantenemos el scroll horizontal fluido */
+    /*el scroll horizontal fluido */
     #miTabla th, #miTabla td { white-space: nowrap; }
 </style>
 {% endblock %}
@@ -13,7 +13,7 @@
     <h4 class="mb-2" style="color: var(--azul-marino);">📥 Generador de Reportes</h4>
     <p class="text-muted small mb-3">Escribe un mes (Ej: 2026-03), una fecha exacta o un departamento para descargar un archivo filtrado. Si lo dejas en blanco, descargará todo.</p>
     
-    <form action="/reporte/excel" method="GET" class="row g-2 align-items-center">
+    <form action="{{ url_for('generar_reporte', modulo=modulo, tipo='excel') }}" method="GET" class="row g-2 align-items-center">
         <div class="col-md-6">
             <input type="text" name="q" class="form-control border-primary shadow-sm" placeholder="Buscar fecha, palabra clave...">
         </div>
@@ -21,22 +21,23 @@
             <button type="submit" class="btn btn-success w-100 fw-bold shadow-sm">Descargar Excel</button>
         </div>
         <div class="col-md-3">
-            <button type="submit" formaction="/reporte/pdf" class="btn btn-danger w-100 fw-bold shadow-sm">Descargar PDF</button>
+            <button type="submit" formaction="{{ url_for('generar_reporte', modulo=modulo, tipo='pdf') }}" class="btn btn-danger w-100 fw-bold shadow-sm">Descargar PDF</button>
         </div>
     </form>
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-    <h3 style="color: var(--azul-marino);">📋 Base de Datos de RDM</h3>
+    <h3 style="color: var(--azul-marino);">📋 Base de Datos: {{ module_name }}</h3>
     <div class="btn-group shadow-sm">
-        <a href="/agregar" class="btn btn-success fw-bold">➕ Registrar RDM Manual</a>
+        <a href="{{ url_for('agregar', modulo=modulo) }}" class="btn btn-success fw-bold">➕ Registrar Manual</a>
         
-        <a href="/dashboard" class="btn btn-info fw-bold text-white">📈 Ver Gráficas</a>
-        <a href="/limpiar_base" class="btn btn-danger fw-bold" onclick="return confirm('¿Estás seguro de borrar TODOS los datos?');">🗑️ Limpiar BD</a>
+        <a href="{{ url_for('dashboard', modulo=modulo) }}" class="btn btn-info fw-bold text-white">📈 Ver Gráficas</a>
+        <a href="{{ url_for('limpiar_base', modulo=modulo) }}" class="btn btn-danger fw-bold" onclick="return confirm('¿Estás seguro de borrar TODOS los datos de este módulo?');">🗑️ Limpiar BD</a>
         <a href="/" class="btn btn-secondary fw-bold">Volver</a>
     </div>
 </div>
-    
+
+{% if columnas %}
     <div class="table-responsive" style="width: 100%;">
         <table id="miTabla" class="table table-striped table-hover align-middle text-nowrap" style="width:100%">
             <thead class="table-dark">
@@ -63,14 +64,17 @@
                         </td> 
                     {% endfor %}
                     <td>
-                        <a href="/editar/{{ fila['rowid'] }}" class="btn btn-sm btn-warning fw-bold">Editar</a>
-                        <a href="/eliminar/{{ fila['rowid'] }}" class="btn btn-sm btn-danger fw-bold" onclick="return confirm('¿Seguro que deseas borrar este registro?')">Borrar</a>
+                        <a href="{{ url_for('editar', modulo=modulo, id=fila['rowid']) }}" class="btn btn-sm btn-warning fw-bold">Editar</a>
+                        <a href="{{ url_for('eliminar', modulo=modulo, id=fila['rowid']) }}" class="btn btn-sm btn-danger fw-bold" onclick="return confirm('¿Seguro que deseas borrar este registro?')">Borrar</a>
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+{% else %}
+    <div class="alert alert-info shadow-sm">Este modulo todavia no tiene datos. Carga un Excel para comenzar.</div>
+{% endif %}
 </div>
 
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>

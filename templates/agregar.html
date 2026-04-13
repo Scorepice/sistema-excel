@@ -2,97 +2,47 @@
 {% block content %}
 <div class="card card-custom p-4 shadow-sm mx-auto" style="max-width: 900px;">
     <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
-        <h3 class="m-0" style="color: var(--azul-marino);">📝 Registrar RDM Individual</h3>
-        <a href="/datos" class="btn btn-outline-secondary fw-bold shadow-sm">Volver a la Tabla</a>
+        <h3 class="m-0" style="color: var(--azul-marino);">📝 Registrar Manual: {{ module_name }}</h3>
+        <a href="{{ url_for('ver_datos', modulo=modulo) }}" class="btn btn-outline-secondary fw-bold shadow-sm">Volver a la Tabla</a>
     </div>
     
-    <form action="/agregar" method="POST">
-        
-        <h5 class="text-primary mb-3 border-bottom pb-2">1. Información de la RDM</h5>
+    <form method="POST">
+        <h5 class="text-primary mb-3 border-bottom pb-2">Campos del modulo</h5>
         <div class="row mb-4">
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">RDM #</label>
-                <input type="text" name="RDM #" class="form-control border-primary shadow-sm" required>
-            </div>
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Estado</label>
-                <select name="Estado" class="form-select border-primary shadow-sm" required>
-                    <option value="Por Ejecutar">Por Pagar</option>
-                    <option value="Ejecutada">Ejecutada</option>
-                </select>
-            </div>
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Prioridad</label>
-                <select name="Prioridad" class="form-select border-primary shadow-sm">
-                    <option value="Baja">Baja</option>
-                    <option value="Normal" selected>Normal</option>
-                    <option value="Critico">Crítico</option>
-                </select>
-            </div>
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Departamento</label>
-                <input type="text" name="Departamento" class="form-control border-primary shadow-sm">
-            </div>
-        </div>
+            {% for campo in campos %}
+            <div class="col-md-4 mb-3">
+                <label class="fw-bold text-muted mb-1">{{ campo.name }}</label>
 
-        <h5 class="text-primary mb-3 border-bottom pb-2">2. Fechas de Gestión</h5>
-        <div class="row mb-4">
-            <div class="col-md-4 mb-3">
-                <label class="fw-bold text-muted mb-1">Fecha (Descripción)</label>
-                <input type="date" name="Descripción" class="form-control border-primary shadow-sm" required>
-            </div>
-            <div class="col-md-4 mb-3">
-                <label class="fw-bold text-muted mb-1">Desde</label>
-                <input type="number" name="Desde" class="form-control border-primary shadow-sm" step="any">
-            </div>
-            <div class="col-md-4 mb-3">
-                <label class="fw-bold text-muted mb-1">Hasta</label>
-                <input type="number" name="Hasta" class="form-control border-primary shadow-sm" step="any">
-            </div>
-        </div>
-
-        <h5 class="text-primary mb-3 border-bottom pb-2">3. Detalles del Material / Servicio</h5>
-        <div class="row mb-4">
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">Código Sistemas</label>
-                <input type="text" name="Codigo Sistemas" class="form-control border-primary shadow-sm">
-            </div>
-            <div class="col-md-9 mb-3">
-                <label class="fw-bold text-muted mb-1">Código (Descripción del Material)</label>
-                <input type="text" name="Código" class="form-control border-primary shadow-sm" required>
-            </div>
-            
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1">cant.orig.</label>
-                <input type="text" name="Cant. orig." class="form-control border-primary shadow-sm" step="any">
-            </div>
-            <div class="col-md-2 mb-3">
-                <label class="fw-bold text-muted mb-1">UM</label>
-                <select name="UM" class="form-select border-primary shadow-sm">
+                {% if campo.kind == 'estado_select' %}
+                <select name="{{ campo.name }}" class="form-select border-primary shadow-sm">
                     <option value="">...</option>
-                    {% for opcion in ['PZE', 'ZZ', 'CT', 'PA', 'BG', 'KT', 'DR', 'GLL', 'PL', 'KGM', 'PR', 'FOT', 'MTR', 'RO', 'PK', 'SET', 'LTR'] %}
-                        <option value="{{ opcion }}">{{ opcion }}</option>
-                    {% endfor %}
+                    <option value="Por Ejecutar">Por Ejecutar</option>
+                    <option value="Ejecutada">Ejecutada</option>
+                    <option value="Por Cotizar">Por Cotizar</option>
+                    <option value="Cotizada">Cotizada</option>
                 </select>
+                {% elif campo.kind == 'prioridad_select' %}
+                <select name="{{ campo.name }}" class="form-select border-primary shadow-sm">
+                    <option value="">...</option>
+                    <option value="Baja">Baja</option>
+                    <option value="Normal">Normal</option>
+                    <option value="Critico">Critico</option>
+                </select>
+                {% elif campo.kind == 'date' %}
+                <input type="date" name="{{ campo.name }}" class="form-control border-primary shadow-sm">
+                {% elif campo.kind == 'number' %}
+                <input type="number" name="{{ campo.name }}" class="form-control border-primary shadow-sm" step="any">
+                {% else %}
+                <input type="text" name="{{ campo.name }}" class="form-control border-primary shadow-sm">
+                {% endif %}
             </div>
-            <div class="col-md-2 mb-3">
-                <label class="fw-bold text-muted mb-1">Usuario</label>
-                <input type="text" name="Usuario" class="form-control border-primary shadow-sm">
-            </div>
-            <div class="col-md-3 mb-3">
-                <label class="fw-bold text-muted mb-1"># Parte (Fecha)</label>
-                <input type="date" name="# parte" class="form-control border-primary shadow-sm">
-            </div>
-            <div class="col-md-2 mb-3">
-                <label class="fw-bold text-muted mb-1">Rg (Texto)</label>
-                <input type="text" name="Rg" class="form-control border-primary shadow-sm">
-            </div>
+            {% endfor %}
         </div>
         
         <div class="d-flex justify-content-between mt-4 border-top pt-4" style="background-color: #f8f9fa; padding: 15px; border-radius: 8px;">
-            <a href="/datos" class="btn btn-danger fw-bold shadow-sm px-4">Cancelar</a>
+            <a href="{{ url_for('ver_datos', modulo=modulo) }}" class="btn btn-danger fw-bold shadow-sm px-4">Cancelar</a>
             <button type="submit" class="btn btn-success fw-bold shadow-sm px-5" style="font-size: 1.1rem;">
-                💾 Guardar RDM
+                💾 Guardar Registro
             </button>
         </div>
     </form>
