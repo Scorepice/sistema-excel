@@ -193,3 +193,35 @@ Rutas legacy redirigen al modulo por defecto rdm_abiertas.
 - Configuracion por entorno (.env).
 - Pruebas unitarias e integracion.
 - Paginar datos en servidor para tablas grandes.
+
+## 15) Crear ejecutable (.exe)
+
+Si, es posible generar un ejecutable para Windows usando PyInstaller.
+
+1. Instalar PyInstaller en el entorno virtual:
+
+```powershell
+pip install pyinstaller
+```
+
+2. Compilar el ejecutable desde la carpeta del proyecto:
+
+```powershell
+pyinstaller --noconfirm --clean --onefile --name SistemaExcel --add-data "templates;templates" --add-data "static;static" app.py
+```
+
+3. Resultado:
+
+- El archivo final queda en dist/SistemaExcel.exe
+
+4. Ejecutar:
+
+- Abrir SistemaExcel.exe
+- Luego entrar a http://127.0.0.1:5000 en el navegador
+
+Notas importantes:
+
+- La app ya quedo adaptada para localizar templates y static en modo ejecutable.
+- La base de datos database.db se crea junto al .exe.
+- Los reportes Excel/PDF tambien se guardan junto al .exe.
+- Si Windows Defender bloquea el .exe, agregar excepcion o firmar el ejecutable.

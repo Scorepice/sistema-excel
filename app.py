@@ -3,11 +3,30 @@ import pandas as pd
 import sqlite3
 import os
 import re
+import sys
 from fpdf import FPDF
 
-app = Flask(__name__)
+
+def app_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.abspath(os.path.dirname(__file__))
+
+
+def resource_path(relative_path):
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
+BASE_DIR = app_base_dir()
+
+app = Flask(
+    __name__,
+    template_folder=resource_path('templates'),
+    static_folder=resource_path('static'),
+)
 app.secret_key = 'super_secreto_maritime'
-DB_NAME = 'database.db'
+DB_NAME = os.path.join(BASE_DIR, 'database.db')
 DEFAULT_MODULE = 'rdm_abiertas'
 
 MODULES = {
@@ -504,7 +523,7 @@ def generar_reporte(modulo, tipo):
         return redirect(url_for('ver_datos', modulo=modulo))
 
     if tipo == 'excel':
-        ruta = f"reporte_{modulo}.xlsx"
+        ruta = os.path.join(BASE_DIR, f"reporte_{modulo}.xlsx")
         df.to_excel(ruta, index=False)
         return send_file(ruta, as_attachment=True)
 
@@ -590,7 +609,7 @@ def generar_reporte(modulo, tipo):
                 pdf.cell(anchos[i], 7, texto_limpio[:limite], border=1)
             pdf.ln()
 
-        ruta_pdf = f"reporte_{modulo}.pdf"
+        ruta_pdf = os.path.join(BASE_DIR, f"reporte_{modulo}.pdf")
         pdf.output(ruta_pdf)
         return send_file(ruta_pdf, as_attachment=True)
 
@@ -640,4 +659,6 @@ def legacy_subir():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    debug_mode = os.environ.get('SISTEMA_EXCEL_DEBUG', '0') == '1'
+    port = int(os.environ.get('SISTEMA_EXCEL_PORT', '5000'))
+    app.run(host='127.0.0.1', port=port, debug=debug_mode)
