@@ -9,6 +9,7 @@
 {% endblock %}
 
 {% block content %}
+<script id="tableColumnsData" type="application/json">{{ table_columns | tojson }}</script>
 <div class="card card-custom p-4 mb-4 shadow-sm border-0" style="background-color: #f8f9fa;">
     <h4 class="mb-2" style="color: var(--azul-marino);">📥 Generador de Reportes</h4>
     <p class="text-muted small mb-3">Escribe un mes (Ej: 2026-03), una fecha exacta o un departamento para descargar un archivo filtrado. Si lo dejas en blanco, descargará todo.</p>
@@ -28,13 +29,18 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h3 style="color: var(--azul-marino);">📋 Base de Datos: {{ module_name }}</h3>
+    <form id="bulkDeleteForm" action="{{ url_for('eliminar_multiples', modulo=modulo) }}" method="POST" class="d-none">
+        <div id="bulkDeleteInputs"></div>
+    </form>
     <div class="btn-group shadow-sm">
         <a href="{{ url_for('agregar', modulo=modulo) }}" class="btn btn-success fw-bold">➕ Registrar Manual</a>
         
         <a href="{{ url_for('dashboard', modulo=modulo) }}" class="btn btn-info fw-bold text-white">📈 Ver Gráficas</a>
+        <button type="submit" form="bulkDeleteForm" id="bulkDeleteBtn" class="btn btn-outline-danger fw-bold">Eliminar seleccionados</button>
         <a href="{{ url_for('limpiar_base', modulo=modulo) }}" class="btn btn-danger fw-bold" onclick="return confirm('¿Estás seguro de borrar TODOS los datos de este módulo?');">🗑️ Limpiar BD</a>
         <a href="/" class="btn btn-secondary fw-bold">Volver</a>
     </div>
+    <span id="selectedCountBadge" class="badge bg-dark ms-2 align-self-center">0 seleccionados</span>
 </div>
 
 {% if columnas %}
@@ -46,26 +52,21 @@
                         <th>{{ col }}</th> 
                     {% endfor %}
                     <th>Acciones</th>
+                    <th class="text-center"><input type="checkbox" id="selectAllVisible" class="form-check-input" title="Seleccionar visibles"></th>
                 </tr>
             </thead>
             <tbody>
                 {% for fila in filas %}
                 <tr>
-                    {% for col in columnas %} 
-                        <td>
-                            {% set valor = fila[col] | string | replace(' 00:00:00', '') %}
-                            {% if valor.endswith('.0') %}
-                                {{ valor[:-2] }}
-                            {% elif valor == 'None' or valor == 'nan' %}
-                                
-                            {% else %}
-                                {{ valor }}
-                            {% endif %}
-                        </td> 
+                    {% for col in columnas %}
+                    <td>{{ fila[col] | string | replace(' 00:00:00', '') }}</td>
                     {% endfor %}
                     <td>
                         <a href="{{ url_for('editar', modulo=modulo, id=fila['rowid']) }}" class="btn btn-sm btn-warning fw-bold">Editar</a>
                         <a href="{{ url_for('eliminar', modulo=modulo, id=fila['rowid']) }}" class="btn btn-sm btn-danger fw-bold" onclick="return confirm('¿Seguro que deseas borrar este registro?')">Borrar</a>
+                    </td>
+                    <td class="text-center">
+                        <input type="checkbox" class="form-check-input row-selector" data-id="{{ fila['rowid'] }}" value="{{ fila['rowid'] }}" aria-label="Seleccionar registro">
                     </td>
                 </tr>
                 {% endfor %}
@@ -80,14 +81,86 @@
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 <script>
-    $(document).ready(function(){ 
-        $('#miTabla').DataTable({ 
+    $(document).ready(function(){
+        const selectedIds = new Set();
+        const tableColumns = JSON.parse($('#tableColumnsData').text() || '[]');
+
+        function updateSelectedBadge() {
+            $('#selectedCountBadge').text(selectedIds.size + ' seleccionados');
+            $('#bulkDeleteBtn').prop('disabled', selectedIds.size === 0);
+        }
+
+        const dataTable = $('#miTabla').DataTable({
             "language": {
                 "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/es-ES.json"
             },
+            "processing": true,
+            "serverSide": true,
+            "ajax": "{{ url_for('ver_datos_json', modulo=modulo) }}",
+            "deferRender": true,
+            "pageLength": 5000,
+            "lengthMenu": [[100, 500, 1000, 5000], [100, 500, 1000, 5000]],
+            "columns": tableColumns,
+            "columnDefs": [
+                { "targets": -1, "orderable": false, "searchable": false, "className": "text-center" },
+                { "targets": -2, "orderable": false, "searchable": false }
+            ],
             "scrollX": true,
-            "autoWidth": false
-        }); 
+            "autoWidth": false,
+            "drawCallback": function () {
+                $('#miTabla tbody input.row-selector').each(function () {
+                    const id = String($(this).data('id'));
+                    if (selectedIds.has(id)) {
+                        $(this).prop('checked', true);
+                    }
+                });
+
+                const visible = $('#miTabla tbody input.row-selector').length;
+                const checked = $('#miTabla tbody input.row-selector:checked').length;
+                $('#selectAllVisible').prop('checked', visible > 0 && visible === checked);
+                updateSelectedBadge();
+            }
+        });
+
+        $(document).on('change', '#miTabla tbody input.row-selector', function () {
+            const id = String($(this).data('id'));
+            if ($(this).is(':checked')) {
+                selectedIds.add(id);
+            } else {
+                selectedIds.delete(id);
+            }
+
+            const visible = $('#miTabla tbody input.row-selector').length;
+            const checked = $('#miTabla tbody input.row-selector:checked').length;
+            $('#selectAllVisible').prop('checked', visible > 0 && visible === checked);
+            updateSelectedBadge();
+        });
+
+        $(document).on('change', '#selectAllVisible', function () {
+            const checked = $(this).is(':checked');
+            $('#miTabla tbody input.row-selector').each(function () {
+                $(this).prop('checked', checked).trigger('change');
+            });
+        });
+
+        $('#bulkDeleteForm').on('submit', function (e) {
+            if (selectedIds.size === 0) {
+                e.preventDefault();
+                alert('Selecciona al menos un registro para eliminar.');
+                return;
+            }
+
+            if (!confirm('¿Seguro que deseas eliminar los registros seleccionados?')) {
+                e.preventDefault();
+                return;
+            }
+
+            const inputs = $('#bulkDeleteInputs');
+            inputs.empty();
+            selectedIds.forEach(function (id) {
+                inputs.append('<input type="hidden" name="ids" value="' + id + '">');
+            });
+        });
     });
 </script>
 {% endblock %}

@@ -102,6 +102,8 @@ Definidos actualmente:
 5. Ver dashboard con filtros de fecha.
 6. Exportar reporte en Excel o PDF.
 
+Al subir un Excel, la app lee todas las hojas del libro y las concatena para no dejar filas fuera.
+
 ## 8) Logica de deteccion de campos
 
 Para formularios y dashboard, la app detecta columnas por coincidencia de texto normalizado (minusculas, sin puntos ni espacios).

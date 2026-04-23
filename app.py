@@ -1,9 +1,12 @@
-from flask import Flask, render_template, request, send_file, redirect, flash, url_for, abort
+from flask import Flask, render_template, request, send_file, redirect, flash, url_for, abort, jsonify
 import pandas as pd
 import sqlite3
 import os
 import re
 import sys
+import html
+import datetime
+import unicodedata
 from fpdf import FPDF
 
 
@@ -28,6 +31,7 @@ app = Flask(
 app.secret_key = 'super_secreto_maritime'
 DB_NAME = os.path.join(BASE_DIR, 'database.db')
 DEFAULT_MODULE = 'rdm_abiertas'
+MAX_ROWS_PER_MODULE = 5000
 
 MODULES = {
     'rdm_abiertas': {'nombre': 'RDM ABIERTAS'},
@@ -48,7 +52,9 @@ def get_db_connection():
 
 
 def normalizar_texto(valor):
-    return str(valor).lower().replace('.', '').replace(' ', '').strip()
+    texto = unicodedata.normalize('NFKD', str(valor))
+    texto = ''.join(caracter for caracter in texto if not unicodedata.combining(caracter))
+    return texto.lower().replace('.', '').replace(' ', '').strip()
 
 
 def table_name_for_module(modulo):
@@ -79,12 +85,7 @@ def detectar_tipo_campo(columna):
         return 'estado_select'
     if 'prioridad' in nombre:
         return 'prioridad_select'
-    if (
-        'fecha' in nombre
-        or 'descripci' in nombre
-        or nombre == '#parte'
-        or nombre == 'parte'
-    ):
+    if any(token in nombre for token in ['fecha', 'emision', 'desde', 'hasta']):
         return 'date'
     if any(token in nombre for token in ['cant', 'monto', 'valor', 'precio', 'total', 'desde', 'hasta']):
         return 'number'
@@ -93,6 +94,159 @@ def detectar_tipo_campo(columna):
 
 def construir_campos_formulario(columnas):
     return [{'name': col, 'kind': detectar_tipo_campo(col)} for col in columnas]
+
+
+def should_parse_as_date(column_name):
+    nombre = normalizar_texto(column_name)
+    return any(token in nombre for token in ['fecha', 'emision', 'desde', 'hasta'])
+
+
+def parse_date_like_value(value):
+    if value is None:
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return value.strftime('%Y-%m-%d')
+
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return pd.Timestamp(value).strftime('%Y-%m-%d')
+
+    if isinstance(value, str):
+        texto = value.strip()
+        if not texto:
+            return None
+
+        if texto.isdigit() and len(texto) <= 4:
+            return texto
+
+        if any(separador in texto for separador in ['/', '-', ':']) or any(mes in texto.lower() for mes in ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']):
+            fecha = pd.to_datetime(texto, errors='coerce', dayfirst=True)
+            if pd.notna(fecha):
+                return fecha.strftime('%Y-%m-%d')
+
+    return value
+
+
+def align_dataframe_to_existing_table(df, conn, table_name):
+    cursor = conn.cursor()
+    cursor.execute(f'PRAGMA table_info("{table_name}")')
+    existing_columns = [col[1] for col in cursor.fetchall()]
+
+    if not existing_columns:
+        return df
+
+    normalized_existing = {normalizar_texto(col): col for col in existing_columns}
+    rename_map = {}
+    for col in df.columns:
+        normalized_col = normalizar_texto(col)
+        if normalized_col in normalized_existing:
+            rename_map[col] = normalized_existing[normalized_col]
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    matched_columns = [col for col in existing_columns if col in df.columns]
+    if not matched_columns:
+        raise ValueError('El Excel no coincide con la estructura esperada del modulo.')
+
+    for col in existing_columns:
+        if col not in df.columns:
+            df[col] = None
+
+    return df[existing_columns]
+
+
+def format_table_value(value):
+    if value is None:
+        return ''
+
+    text = str(value).replace(' 00:00:00', '')
+    if text in ['None', 'nan']:
+        return ''
+    if text.endswith('.0'):
+        return text[:-2]
+    return text
+
+
+def worksheet_to_dataframe(worksheet):
+    rows = worksheet.iter_rows(values_only=True)
+
+    try:
+        encabezados = next(rows)
+    except StopIteration:
+        return pd.DataFrame()
+
+    encabezados_limpios = []
+    for index, encabezado in enumerate(encabezados, start=1):
+        texto = ' '.join(str(encabezado).split()) if encabezado is not None else ''
+        encabezados_limpios.append(texto if texto else f'Columna_{index}')
+
+    registros = []
+    for row in rows:
+        if row is None:
+            continue
+
+        valores = list(row)
+        if len(valores) < len(encabezados_limpios):
+            valores.extend([None] * (len(encabezados_limpios) - len(valores)))
+        elif len(valores) > len(encabezados_limpios):
+            extras = len(valores) - len(encabezados_limpios)
+            encabezados_limpios.extend([f'Columna_{len(encabezados_limpios) + i + 1}' for i in range(extras)])
+
+        if all(valor is None or str(valor).strip() == '' for valor in valores):
+            continue
+
+        fila_dict = dict(zip(encabezados_limpios, valores))
+
+        # Si una fila repite el encabezado, saltarla.
+        if all(str(fila_dict.get(col, '')).strip() == str(col).strip() for col in encabezados_limpios):
+            continue
+
+        registros.append(fila_dict)
+
+    if not registros:
+        return pd.DataFrame()
+
+    return pd.DataFrame(registros)
+
+
+def enforce_table_row_limit(conn, table_name, max_rows=MAX_ROWS_PER_MODULE):
+    total_rows = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+    overflow = total_rows - max_rows
+    if overflow <= 0:
+        return 0, total_rows
+
+    # Borra los registros más antiguos (rowid menor) para conservar los más recientes.
+    conn.execute(
+        f'''DELETE FROM "{table_name}"
+            WHERE rowid IN (
+                SELECT rowid FROM "{table_name}" ORDER BY rowid ASC LIMIT ?
+            )''',
+        (overflow,),
+    )
+    conn.commit()
+
+    remaining_rows = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+    return overflow, remaining_rows
+
+
+def leer_excel_completo(archivo):
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(archivo, data_only=True, read_only=True)
+    frames = []
+
+    for worksheet in workbook.worksheets:
+        df_hoja = worksheet_to_dataframe(worksheet)
+        if not df_hoja.empty:
+            frames.append(df_hoja)
+
+    workbook.close()
+
+    if not frames:
+        return pd.DataFrame()
+
+    return pd.concat(frames, ignore_index=True, sort=False)
 
 
 @app.context_processor
@@ -121,21 +275,42 @@ def subir_excel(modulo):
         return redirect(url_for('index', modulo=modulo))
 
     try:
-        df = pd.read_excel(archivo)
-        df.columns = [' '.join(str(c).split()) for c in df.columns]
+        df = leer_excel_completo(archivo)
+
+        if df.empty:
+            flash('El archivo no contiene filas validas para procesar.', 'warning')
+            return redirect(url_for('index', modulo=modulo))
 
         for col in df.columns:
-            col_limpia = normalizar_texto(col)
-            if 'fecha' in col_limpia or 'descripci' in col_limpia or 'parte' in col_limpia:
-                serie_fecha = pd.to_datetime(df[col], errors='coerce')
-                if serie_fecha.notna().sum() > 0:
-                    df[col] = serie_fecha.dt.strftime('%Y-%m-%d')
+            if should_parse_as_date(col):
+                df[col] = df[col].apply(parse_date_like_value)
 
         conn = sqlite3.connect(DB_NAME)
-        df.to_sql(table_name_for_module(modulo), conn, if_exists='append', index=False)
+        table_name = table_name_for_module(modulo)
+        if table_exists(conn, table_name):
+            df = align_dataframe_to_existing_table(df, conn, table_name)
+
+        df.to_sql(table_name, conn, if_exists='append', index=False)
+        eliminados, total_actual = enforce_table_row_limit(conn, table_name, MAX_ROWS_PER_MODULE)
         conn.close()
 
-        flash(f"Excel del modulo '{modulo_info['nombre']}' guardado con exito.", 'success')
+        if eliminados > 0:
+            flash(
+                (
+                    f"Excel del modulo '{modulo_info['nombre']}' guardado con exito. "
+                    f"Se eliminaron {eliminados} registros antiguos para mantener el limite de "
+                    f"{MAX_ROWS_PER_MODULE} (total actual: {total_actual})."
+                ),
+                'warning',
+            )
+        else:
+            flash(
+                (
+                    f"Excel del modulo '{modulo_info['nombre']}' guardado con exito leyendo todas las hojas. "
+                    f"Total actual: {total_actual}."
+                ),
+                'success',
+            )
         return redirect(url_for('ver_datos', modulo=modulo))
     except Exception as e:
         flash(f'Error al procesar el archivo: {str(e)}', 'danger')
@@ -157,10 +332,11 @@ def ver_datos(modulo):
                 module_name=modulo_info['nombre'],
                 filas=[],
                 columnas=[],
+                table_columns=[],
             )
 
         filas = conn.execute(
-            f'SELECT rowid, * FROM "{table_name}" ORDER BY rowid DESC LIMIT 500'
+            f'SELECT rowid, * FROM "{table_name}" ORDER BY rowid DESC LIMIT {MAX_ROWS_PER_MODULE}'
         ).fetchall()
         cursor = conn.cursor()
         cursor.execute(f'PRAGMA table_info("{table_name}")')
@@ -172,6 +348,110 @@ def ver_datos(modulo):
             module_name=modulo_info['nombre'],
             filas=filas,
             columnas=columnas,
+            table_columns=[
+                *[{'data': i} for i in range(len(columnas))],
+                {'data': len(columnas), 'orderable': False, 'searchable': False},
+                {
+                    'data': len(columnas) + 1,
+                    'orderable': False,
+                    'searchable': False,
+                    'className': 'text-center',
+                },
+            ],
+        )
+    finally:
+        conn.close()
+
+
+@app.route('/modulo/<modulo>/datos_json')
+def ver_datos_json(modulo):
+    get_module_or_404(modulo)
+    table_name = table_name_for_module(modulo)
+
+    draw = int(request.args.get('draw', 1))
+    start = max(int(request.args.get('start', 0)), 0)
+    length = int(request.args.get('length', 100))
+    if length <= 0:
+        length = 100
+    if length > MAX_ROWS_PER_MODULE:
+        length = MAX_ROWS_PER_MODULE
+
+    conn = get_db_connection()
+    try:
+        if not table_exists(conn, table_name):
+            return jsonify({'draw': draw, 'recordsTotal': 0, 'recordsFiltered': 0, 'data': []})
+
+        cursor = conn.cursor()
+        cursor.execute(f'PRAGMA table_info("{table_name}")')
+        columnas = [col[1] for col in cursor.fetchall()]
+
+        if not columnas:
+            return jsonify({'draw': draw, 'recordsTotal': 0, 'recordsFiltered': 0, 'data': []})
+
+        total = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+
+        busqueda = request.args.get('search[value]', '').strip()
+        where_clause = ''
+        where_params = []
+        if busqueda:
+            like = f'%{busqueda}%'
+            filters = [f'CAST("{col}" AS TEXT) LIKE ?' for col in columnas]
+            where_clause = ' WHERE ' + ' OR '.join(filters)
+            where_params = [like] * len(columnas)
+
+        filtered = total
+        if where_clause:
+            filtered = conn.execute(
+                f'SELECT COUNT(*) FROM "{table_name}"{where_clause}',
+                where_params,
+            ).fetchone()[0]
+
+        order_column_index = request.args.get('order[0][column]')
+        order_dir = request.args.get('order[0][dir]', 'desc').lower()
+        order_dir_sql = 'DESC' if order_dir == 'desc' else 'ASC'
+        order_clause = ' ORDER BY rowid DESC'
+
+        if order_column_index is not None:
+            try:
+                idx = int(order_column_index)
+                if 0 <= idx < len(columnas):
+                    order_clause = f' ORDER BY "{columnas[idx]}" {order_dir_sql}'
+            except ValueError:
+                pass
+
+        query = (
+            f'SELECT rowid, * FROM "{table_name}"'
+            f'{where_clause}'
+            f'{order_clause}'
+            ' LIMIT ? OFFSET ?'
+        )
+        rows = conn.execute(query, where_params + [length, start]).fetchall()
+
+        data = []
+        for row in rows:
+            rendered_row = [html.escape(format_table_value(row[col])) for col in columnas]
+            edit_url = url_for('editar', modulo=modulo, id=row['rowid'])
+            delete_url = url_for('eliminar', modulo=modulo, id=row['rowid'])
+            acciones = (
+                f'<a href="{edit_url}" class="btn btn-sm btn-warning fw-bold">Editar</a> '
+                f'<a href="{delete_url}" class="btn btn-sm btn-danger fw-bold" '
+                f'onclick="return confirm(\'¿Seguro que deseas borrar este registro?\')">Borrar</a>'
+            )
+            rendered_row.append(acciones)
+            rendered_row.append(
+                f'<input type="checkbox" class="form-check-input row-selector" '
+                f'data-id="{row["rowid"]}" value="{row["rowid"]}" '
+                'aria-label="Seleccionar registro">'
+            )
+            data.append(rendered_row)
+
+        return jsonify(
+            {
+                'draw': draw,
+                'recordsTotal': total,
+                'recordsFiltered': filtered,
+                'data': data,
+            }
         )
     finally:
         conn.close()
@@ -474,6 +754,51 @@ def eliminar(modulo, id):
         conn.execute(f'DELETE FROM "{table_name}" WHERE rowid = ?', (id,))
         conn.commit()
         flash('Registro eliminado.', 'danger')
+    finally:
+        conn.close()
+
+    return redirect(url_for('ver_datos', modulo=modulo))
+
+
+@app.route('/modulo/<modulo>/eliminar_multiples', methods=['POST'])
+def eliminar_multiples(modulo):
+    get_module_or_404(modulo)
+    table_name = table_name_for_module(modulo)
+
+    ids_raw = request.form.getlist('ids')
+    if not ids_raw:
+        flash('Selecciona al menos un registro para eliminar.', 'warning')
+        return redirect(url_for('ver_datos', modulo=modulo))
+
+    ids = []
+    for value in ids_raw:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+
+    ids = sorted(set(ids))
+    if not ids:
+        flash('No se recibieron IDs validos para eliminar.', 'warning')
+        return redirect(url_for('ver_datos', modulo=modulo))
+
+    conn = get_db_connection()
+    try:
+        if not table_exists(conn, table_name):
+            flash('No hay tabla para eliminar registros en este modulo.', 'warning')
+            return redirect(url_for('index', modulo=modulo))
+
+        placeholders = ', '.join(['?' for _ in ids])
+        cursor = conn.execute(
+            f'DELETE FROM "{table_name}" WHERE rowid IN ({placeholders})',
+            ids,
+        )
+        conn.commit()
+
+        if cursor.rowcount > 0:
+            flash(f'Se eliminaron {cursor.rowcount} registros.', 'danger')
+        else:
+            flash('No se eliminaron registros (puede que ya no existieran).', 'warning')
     finally:
         conn.close()
 
