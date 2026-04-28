@@ -30,6 +30,7 @@
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h3 style="color: var(--azul-marino);">📋 Base de Datos: {{ module_name }}</h3>
     <form id="bulkDeleteForm" action="{{ url_for('eliminar_multiples', modulo=modulo) }}" method="POST" class="d-none">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div id="bulkDeleteInputs"></div>
     </form>
     <div class="btn-group shadow-sm">
@@ -37,7 +38,10 @@
         
         <a href="{{ url_for('dashboard', modulo=modulo) }}" class="btn btn-info fw-bold text-white">📈 Ver Gráficas</a>
         <button type="submit" form="bulkDeleteForm" id="bulkDeleteBtn" class="btn btn-outline-danger fw-bold">Eliminar seleccionados</button>
-        <a href="{{ url_for('limpiar_base', modulo=modulo) }}" class="btn btn-danger fw-bold" onclick="return confirm('¿Estás seguro de borrar TODOS los datos de este módulo?');">🗑️ Limpiar BD</a>
+        <form id="limpiarForm" action="{{ url_for('limpiar_base', modulo=modulo) }}" method="POST" style="display:inline;">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger fw-bold" onclick="return confirm('¿Estás seguro de borrar TODOS los datos de este módulo?');">🗑️ Limpiar BD</button>
+        </form>
         <a href="/" class="btn btn-secondary fw-bold">Volver</a>
     </div>
     <span id="selectedCountBadge" class="badge bg-dark ms-2 align-self-center">0 seleccionados</span>
@@ -63,7 +67,10 @@
                     {% endfor %}
                     <td>
                         <a href="{{ url_for('editar', modulo=modulo, id=fila['rowid']) }}" class="btn btn-sm btn-warning fw-bold">Editar</a>
-                        <a href="{{ url_for('eliminar', modulo=modulo, id=fila['rowid']) }}" class="btn btn-sm btn-danger fw-bold" onclick="return confirm('¿Seguro que deseas borrar este registro?')">Borrar</a>
+                        <form action="{{ url_for('eliminar', modulo=modulo, id=fila['rowid']) }}" method="POST" style="display:inline;" onsubmit="return confirm('¿Seguro que deseas borrar este registro?')">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-danger fw-bold">Borrar</button>
+                        </form>
                     </td>
                     <td class="text-center">
                         <input type="checkbox" class="form-check-input row-selector" data-id="{{ fila['rowid'] }}" value="{{ fila['rowid'] }}" aria-label="Seleccionar registro">

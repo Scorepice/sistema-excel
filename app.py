@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, redirect, flash, url_for, abort, jsonify
+from flask import Flask, render_template, request, send_file, redirect, flash, url_for, abort, jsonify, session
 import pandas as pd
 import sqlite3
 import os
@@ -8,6 +8,7 @@ import html
 import datetime
 import unicodedata
 from fpdf import FPDF
+from werkzeug.exceptions import RequestEntityTooLarge
 
 
 def app_base_dir():
@@ -28,10 +29,24 @@ app = Flask(
     template_folder=resource_path('templates'),
     static_folder=resource_path('static'),
 )
-app.secret_key = 'super_secreto_maritime'
+
+# Secret key: prefer env var for production; generate a temporary one if missing.
+import secrets as _secrets
+_env_secret = os.environ.get('SISTEMA_EXCEL_SECRET') or os.environ.get('SISTEMA_EXCEL_SECRET_KEY')
+if _env_secret:
+    app.secret_key = _env_secret
+else:
+    # fallback to a generated key but warn the operator; not suitable for multi-instance sessions.
+    app.secret_key = _secrets.token_urlsafe(32)
+    print('Warning: SISTEMA_EXCEL_SECRET not set — using generated secret key (set env var for stability).')
 DB_NAME = os.path.join(BASE_DIR, 'database.db')
 DEFAULT_MODULE = 'rdm_abiertas'
-MAX_ROWS_PER_MODULE = 5000
+MAX_STORED_ROWS_PER_MODULE = int(os.getenv('MAX_STORED_ROWS_PER_MODULE', '100000'))
+MAX_TABLE_PAGE_SIZE = int(os.getenv('MAX_TABLE_PAGE_SIZE', '5000'))
+MAX_UPLOAD_MB = int(os.getenv('MAX_UPLOAD_MB', '100'))
+app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
+DATE_MIN_YEAR = int(os.getenv('DATE_MIN_YEAR', '2000'))
+DATE_MAX_YEAR = int(os.getenv('DATE_MAX_YEAR', '2100'))
 
 MODULES = {
     'rdm_abiertas': {'nombre': 'RDM ABIERTAS'},
@@ -78,6 +93,10 @@ def table_exists(conn, table_name):
     return cursor.fetchone() is not None
 
 
+def validate_csrf_token(token):
+    return token and session.get('_csrf_token') == token
+
+
 def detectar_tipo_campo(columna):
     nombre = normalizar_texto(columna)
 
@@ -101,30 +120,92 @@ def should_parse_as_date(column_name):
     return any(token in nombre for token in ['fecha', 'emision', 'desde', 'hasta'])
 
 
+def get_dashboard_date_column(modulo, df):
+    if modulo == 'rdm_abiertas':
+        for candidate in ['# parte', '#parte', 'descripci�n', 'descripcion']:
+            if candidate in df.columns:
+                return candidate
+
+    candidates = [c for c in df.columns if should_parse_as_date(c)]
+    if candidates:
+        return candidates[0]
+
+    best_column = None
+    best_ratio = 0.0
+    for column in df.columns:
+        parsed_ratio = pd.to_datetime(df[column].apply(parse_date_like_value), errors='coerce').notna().mean()
+        if parsed_ratio > best_ratio:
+            best_ratio = parsed_ratio
+            best_column = column
+
+    return best_column
+
+
 def parse_date_like_value(value):
     if value is None:
         return None
 
+    # Evita errores con NaN/NaT provenientes de pandas/openpyxl.
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+
     if isinstance(value, pd.Timestamp):
+        if not (DATE_MIN_YEAR <= value.year <= DATE_MAX_YEAR):
+            return None
         return value.strftime('%Y-%m-%d')
 
     if isinstance(value, (datetime.datetime, datetime.date)):
-        return pd.Timestamp(value).strftime('%Y-%m-%d')
+        fecha = pd.Timestamp(value)
+        if not (DATE_MIN_YEAR <= fecha.year <= DATE_MAX_YEAR):
+            return None
+        return fecha.strftime('%Y-%m-%d')
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # 0 y negativos en campos fecha suelen representar vacio/invalido.
+        if value <= 0:
+            return None
+
+        # Serial de fecha de Excel (dias desde 1899-12-30).
+        if value <= 60000:
+            fecha = pd.to_datetime(value, unit='D', origin='1899-12-30', errors='coerce')
+            if pd.notna(fecha) and DATE_MIN_YEAR <= fecha.year <= DATE_MAX_YEAR:
+                return fecha.strftime('%Y-%m-%d')
+        return None
 
     if isinstance(value, str):
         texto = value.strip()
         if not texto:
             return None
 
-        if texto.isdigit() and len(texto) <= 4:
-            return texto
+        if texto in {'0', '0.0', '00/00/0000', '0000-00-00'}:
+            return None
+
+        if texto.isdigit():
+            numero = int(texto)
+            if numero <= 0:
+                return None
+
+            # Trata numeros puros como serial de Excel solo si caen en un rango razonable.
+            if numero <= 60000:
+                fecha = pd.to_datetime(numero, unit='D', origin='1899-12-30', errors='coerce')
+                if pd.notna(fecha) and 1900 <= fecha.year <= 2100:
+                    return fecha.strftime('%Y-%m-%d')
+            return None
+
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}', texto):
+            fecha = pd.to_datetime(texto, format='%Y-%m-%d', errors='coerce')
+            if pd.notna(fecha) and DATE_MIN_YEAR <= fecha.year <= DATE_MAX_YEAR:
+                return fecha.strftime('%Y-%m-%d')
 
         if any(separador in texto for separador in ['/', '-', ':']) or any(mes in texto.lower() for mes in ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']):
             fecha = pd.to_datetime(texto, errors='coerce', dayfirst=True)
-            if pd.notna(fecha):
+            if pd.notna(fecha) and DATE_MIN_YEAR <= fecha.year <= DATE_MAX_YEAR:
                 return fecha.strftime('%Y-%m-%d')
 
-    return value
+    return None
 
 
 def align_dataframe_to_existing_table(df, conn, table_name):
@@ -148,6 +229,23 @@ def align_dataframe_to_existing_table(df, conn, table_name):
     matched_columns = [col for col in existing_columns if col in df.columns]
     if not matched_columns:
         raise ValueError('El Excel no coincide con la estructura esperada del modulo.')
+
+    # Evita cargar archivos de estructura distinta que causen corrimiento de datos.
+    min_base = max(1, min(len(existing_columns), len(df.columns)))
+    compatibility_ratio = len(matched_columns) / min_base
+    if compatibility_ratio < 0.60:
+        raise ValueError(
+                'El Excel parece pertenecer a otra estructura/modulo. '
+                f'Compatibilidad detectada: {compatibility_ratio:.0%}. '
+                'Revisa que corresponda al modulo seleccionado.'
+            )
+
+    # Si el Excel trae columnas nuevas, agregarlas a la tabla para no perder informacion.
+    new_columns = [col for col in df.columns if col not in existing_columns]
+    for col in new_columns:
+        safe_col = str(col).replace('"', '""')
+        conn.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{safe_col}" TEXT')
+        existing_columns.append(col)
 
     for col in existing_columns:
         if col not in df.columns:
@@ -199,7 +297,7 @@ def worksheet_to_dataframe(worksheet):
         fila_dict = dict(zip(encabezados_limpios, valores))
 
         # Si una fila repite el encabezado, saltarla.
-        if all(str(fila_dict.get(col, '')).strip() == str(col).strip() for col in encabezados_limpios):
+        if all(normalizar_texto(fila_dict.get(col, '')) == normalizar_texto(col) for col in encabezados_limpios):
             continue
 
         registros.append(fila_dict)
@@ -210,7 +308,7 @@ def worksheet_to_dataframe(worksheet):
     return pd.DataFrame(registros)
 
 
-def enforce_table_row_limit(conn, table_name, max_rows=MAX_ROWS_PER_MODULE):
+def enforce_table_row_limit(conn, table_name, max_rows=MAX_STORED_ROWS_PER_MODULE):
     total_rows = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
     overflow = total_rows - max_rows
     if overflow <= 0:
@@ -251,7 +349,13 @@ def leer_excel_completo(archivo):
 
 @app.context_processor
 def inject_globals():
-    return {'modulos': MODULES}
+    # expose modules and a csrf token generator to templates
+    def _csrf_token():
+        if '_csrf_token' not in session:
+            session['_csrf_token'] = _secrets.token_urlsafe(16)
+        return session['_csrf_token']
+
+    return {'modulos': MODULES, 'csrf_token': _csrf_token}
 
 
 @app.route('/')
@@ -291,7 +395,7 @@ def subir_excel(modulo):
             df = align_dataframe_to_existing_table(df, conn, table_name)
 
         df.to_sql(table_name, conn, if_exists='append', index=False)
-        eliminados, total_actual = enforce_table_row_limit(conn, table_name, MAX_ROWS_PER_MODULE)
+        eliminados, total_actual = enforce_table_row_limit(conn, table_name, MAX_STORED_ROWS_PER_MODULE)
         conn.close()
 
         if eliminados > 0:
@@ -299,7 +403,7 @@ def subir_excel(modulo):
                 (
                     f"Excel del modulo '{modulo_info['nombre']}' guardado con exito. "
                     f"Se eliminaron {eliminados} registros antiguos para mantener el limite de "
-                    f"{MAX_ROWS_PER_MODULE} (total actual: {total_actual})."
+                    f"{MAX_STORED_ROWS_PER_MODULE} (total actual: {total_actual})."
                 ),
                 'warning',
             )
@@ -315,6 +419,12 @@ def subir_excel(modulo):
     except Exception as e:
         flash(f'Error al procesar el archivo: {str(e)}', 'danger')
         return redirect(url_for('index', modulo=modulo))
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_large_upload(_error):
+    flash(f'El archivo excede el tamano maximo permitido ({MAX_UPLOAD_MB} MB).', 'danger')
+    return redirect(request.referrer or url_for('selector_modulo'))
 
 
 @app.route('/modulo/<modulo>/datos')
@@ -336,7 +446,7 @@ def ver_datos(modulo):
             )
 
         filas = conn.execute(
-            f'SELECT rowid, * FROM "{table_name}" ORDER BY rowid DESC LIMIT {MAX_ROWS_PER_MODULE}'
+            f'SELECT rowid, * FROM "{table_name}" ORDER BY rowid DESC LIMIT {MAX_TABLE_PAGE_SIZE}'
         ).fetchall()
         cursor = conn.cursor()
         cursor.execute(f'PRAGMA table_info("{table_name}")')
@@ -373,8 +483,8 @@ def ver_datos_json(modulo):
     length = int(request.args.get('length', 100))
     if length <= 0:
         length = 100
-    if length > MAX_ROWS_PER_MODULE:
-        length = MAX_ROWS_PER_MODULE
+    if length > MAX_TABLE_PAGE_SIZE:
+        length = MAX_TABLE_PAGE_SIZE
 
     conn = get_db_connection()
     try:
@@ -464,10 +574,10 @@ def dashboard(modulo):
 
     data_vacia = {
         'labels': [],
-        'ejecutadas': [],
-        'por_ejecutar': [],
-        'por_cotizar': [],
-        'cotizadas': [],
+        'datasets': [],
+        'total_labels': [],
+        'total_valores': [],
+        'total_colores': [],
     }
 
     inicio = request.args.get('inicio', '')
@@ -505,14 +615,7 @@ def dashboard(modulo):
         )
 
     col_estado = next((c for c in df.columns if 'estad' in c.lower() or 'esatad' in c.lower()), None)
-    col_fecha = next(
-        (
-            c
-            for c in df.columns
-            if 'descripci' in c.lower() or 'desde' in c.lower() or 'parte' in c.lower() or 'fecha' in c.lower()
-        ),
-        None,
-    )
+    col_fecha = get_dashboard_date_column(modulo, df)
     col_depto = next((c for c in df.columns if 'departamento' in c.lower() or 'depto' in c.lower()), None)
 
     if not col_estado or not col_fecha or not col_depto:
@@ -528,7 +631,7 @@ def dashboard(modulo):
             fin=fin,
         )
 
-    df['Fecha_Real'] = pd.to_datetime(df[col_fecha], errors='coerce')
+    df['Fecha_Real'] = pd.to_datetime(df[col_fecha].apply(parse_date_like_value), errors='coerce')
 
     if inicio:
         df = df[df['Fecha_Real'] >= pd.to_datetime(inicio)]
@@ -551,32 +654,37 @@ def dashboard(modulo):
     df[col_depto] = df[col_depto].fillna('SIN DEPTO').astype(str).str.strip().str.upper()
     df[col_estado] = df[col_estado].fillna('PENDIENTE').astype(str).str.strip().str.upper()
 
+    estado_counts = df[col_estado].value_counts()
+    paleta_estados = ['#17659d', '#fd7e14', '#6f42c1', '#20c997', '#e83e8c', '#dc3545', '#0dcaf0', '#ffc107', '#28a745', '#6610f2']
+    colores_estado_totales = [paleta_estados[i % len(paleta_estados)] for i in range(len(estado_counts))]
+    mapa_colores_estado = {
+        str(estado): colores_estado_totales[i]
+        for i, estado in enumerate(estado_counts.index.astype(str).tolist())
+    }
+
+    pivot_estado = pd.crosstab(df['Mes'], df[col_estado])
+    data_estatus = {
+        'labels': pivot_estado.index.tolist(),
+        'datasets': [],
+        'total_labels': estado_counts.index.astype(str).tolist(),
+        'total_valores': estado_counts.values.tolist(),
+        'total_colores': colores_estado_totales,
+    }
+    for estado in pivot_estado.columns.astype(str).tolist():
+        color_asignado = mapa_colores_estado.get(estado, '#cccccc')
+        data_estatus['datasets'].append(
+            {
+                'label': estado,
+                'data': pivot_estado[estado].tolist(),
+                'backgroundColor': color_asignado,
+                'borderColor': color_asignado,
+                'borderWidth': 1,
+            }
+        )
+
     deptos_unicos = df[col_depto].unique().tolist()
     paleta = ['#17659d', '#fd7e14', '#6f42c1', '#20c997', '#e83e8c', '#dc3545', '#0dcaf0', '#ffc107', '#28a745', '#6610f2']
     mapa_colores = {depto: paleta[i % len(paleta)] for i, depto in enumerate(deptos_unicos)}
-
-    meses_unicos = sorted(df['Mes'].unique().tolist())
-    data_estatus = {
-        'labels': meses_unicos,
-        'ejecutadas': [],
-        'por_ejecutar': [],
-        'por_cotizar': [],
-        'cotizadas': [],
-    }
-
-    for mes in meses_unicos:
-        subset = df[df['Mes'] == mes]
-        estado_mes = subset[col_estado].fillna('').astype(str).str.upper()
-        conteo_ejecutadas = int(estado_mes.str.contains('EJECUTADA').sum())
-        conteo_por_cotizar = int(estado_mes.str.contains('POR COTIZAR').sum())
-        conteo_cotizadas = int(estado_mes.str.contains('COTIZADA').sum())
-        conteo_total = int(subset.shape[0])
-        conteo_por_ejecutar = max(conteo_total - conteo_ejecutadas - conteo_por_cotizar - conteo_cotizadas, 0)
-
-        data_estatus['ejecutadas'].append(conteo_ejecutadas)
-        data_estatus['por_ejecutar'].append(conteo_por_ejecutar)
-        data_estatus['por_cotizar'].append(conteo_por_cotizar)
-        data_estatus['cotizadas'].append(conteo_cotizadas)
 
     depto_counts = df[col_depto].value_counts()
     colores_depto = [mapa_colores.get(d, '#cccccc') for d in depto_counts.index]
@@ -740,10 +848,15 @@ def agregar(modulo):
     )
 
 
-@app.route('/modulo/<modulo>/eliminar/<int:id>')
+@app.route('/modulo/<modulo>/eliminar/<int:id>', methods=['POST'])
 def eliminar(modulo, id):
     get_module_or_404(modulo)
     table_name = table_name_for_module(modulo)
+
+    token = request.form.get('_csrf_token')
+    if not validate_csrf_token(token):
+        flash('Token CSRF invalido. Operacion cancelada.', 'danger')
+        return redirect(url_for('ver_datos', modulo=modulo))
 
     conn = get_db_connection()
     try:
@@ -766,6 +879,10 @@ def eliminar_multiples(modulo):
     table_name = table_name_for_module(modulo)
 
     ids_raw = request.form.getlist('ids')
+    token = request.form.get('_csrf_token')
+    if not validate_csrf_token(token):
+        flash('Token CSRF invalido. Operacion cancelada.', 'danger')
+        return redirect(url_for('ver_datos', modulo=modulo))
     if not ids_raw:
         flash('Selecciona al menos un registro para eliminar.', 'warning')
         return redirect(url_for('ver_datos', modulo=modulo))
@@ -806,9 +923,15 @@ def eliminar_multiples(modulo):
 
 
 @app.route('/modulo/<modulo>/limpiar_base')
+@app.route('/modulo/<modulo>/limpiar_base', methods=['POST'])
 def limpiar_base(modulo):
     modulo_info = get_module_or_404(modulo)
     table_name = table_name_for_module(modulo)
+
+    token = request.form.get('_csrf_token')
+    if not validate_csrf_token(token):
+        flash('Token CSRF invalido. Operacion cancelada.', 'danger')
+        return redirect(url_for('index', modulo=modulo))
 
     conn = get_db_connection()
     try:
@@ -965,12 +1088,14 @@ def legacy_editar(id):
 
 @app.route('/eliminar/<int:id>')
 def legacy_eliminar(id):
-    return redirect(url_for('eliminar', modulo=DEFAULT_MODULE, id=id))
+    # eliminar now requires POST with CSRF; redirect to datos view instead.
+    return redirect(url_for('ver_datos', modulo=DEFAULT_MODULE))
 
 
 @app.route('/limpiar_base')
 def legacy_limpiar_base():
-    return redirect(url_for('limpiar_base', modulo=DEFAULT_MODULE))
+    # limpiar_base now requires POST; redirect to index instead to avoid accidental deletes.
+    return redirect(url_for('index', modulo=DEFAULT_MODULE))
 
 
 @app.route('/reporte/<tipo>')

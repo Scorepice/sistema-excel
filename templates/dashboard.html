@@ -1,55 +1,93 @@
 {% extends "base.html" %}
 {% block content %}
 
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css', v='2') }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-<div class="card card-custom p-4 mb-5 shadow-sm">
-    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3 flex-wrap gap-3">
-        <h3 class="m-0" style="color: var(--azul-marino);">📊 Panel Interactivo: {{ module_name }}</h3>
-        <div class="btn-group shadow-sm">
-            <a href="{{ url_for('ver_datos', modulo=modulo) }}" class="btn btn-secondary fw-bold">Regresar a la Tabla</a>
-            <button onclick="descargarGraficaPDF()" class="btn btn-danger fw-bold">📄 Exportar Gráfica PDF</button>
-        </div>
-    </div>
-    
-    <form method="GET" action="{{ url_for('dashboard', modulo=modulo) }}" class="row mb-4 p-3 rounded align-items-end" style="background-color: #e9ecef; border: 1px solid #ced4da;">
-        <div class="col-md-4 mb-3 mb-md-0">
-            <label class="fw-bold text-muted mb-1">📅 Desde (Fecha Inicio):</label>
-            <input type="date" name="inicio" value="{{ inicio }}" class="form-control shadow-sm border-primary">
-        </div>
-        <div class="col-md-4 mb-3 mb-md-0">
-            <label class="fw-bold text-muted mb-1">📅 Hasta (Fecha Fin):</label>
-            <input type="date" name="fin" value="{{ fin }}" class="form-control shadow-sm border-primary">
-        </div>
-        <div class="col-md-4 d-flex gap-2">
-            <button type="submit" class="btn btn-primary fw-bold shadow-sm w-100">🔍 Filtrar Fechas</button>
-            <a href="{{ url_for('dashboard', modulo=modulo) }}" class="btn btn-outline-secondary fw-bold shadow-sm">Limpiar</a>
-        </div>
-    </form>
-
-    <div class="row mb-4 p-3 rounded" style="background-color: #f8f9fa; border: 1px solid #dee2e6;">
-        <div class="col-md-6 mb-3 mb-md-0">
-            <label class="fw-bold text-muted mb-1">1. ¿Qué datos deseas analizar?</label>
-            <select id="filtroDatos" class="form-select shadow-sm" onchange="actualizarGrafica()">
-                <option value="estatus">RDM por Estado (Por Fecha)</option>
-                <option value="cruce">Volumen por Departamento (A través del Tiempo)</option>
-                <option value="depto">Total General por Departamento</option>
-            </select>
-        </div>
-        <div class="col-md-6">
-            <label class="fw-bold text-muted mb-1">2. Estilo Visual</label>
-            <select id="tipoGrafica" class="form-select shadow-sm" onchange="actualizarGrafica()">
-                <option value="bar_horizontal">Barras Horizontales</option>
-                <option value="bar">Barras Verticales</option>
-                <option value="line">Línea de Tendencia</option>
-                <option value="doughnut">Gráfico Circular</option>
-            </select>
+<div class="dashboard-shell mb-5">
+    <div class="dashboard-hero">
+        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap position-relative" style="z-index:1;">
+            <div>
+                <h3 class="dashboard-hero-title">Panel Interactivo: {{ module_name }}</h3>
+                <p class="dashboard-hero-subtitle">Selecciona departamentos y observa cómo las barras aparecen progresivamente para que el análisis sea más claro y visualmente ordenado.</p>
+            </div>
+            <div class="btn-group shadow-sm">
+                <a href="{{ url_for('ver_datos', modulo=modulo) }}" class="btn btn-light fw-bold">Regresar a la Tabla</a>
+                <button onclick="descargarGraficaPDF()" class="btn btn-warning fw-bold">Exportar PDF</button>
+            </div>
         </div>
     </div>
 
-    <div id="contenedorGrafica" style="position: relative; height:60vh; width:100%; background: white;">
-        <canvas id="miGraficaMaestra"></canvas>
+    <div class="dashboard-kpis">
+        <div class="dashboard-kpi">
+            <span class="label">Rango</span>
+            <span class="value">{{ inicio or 'Inicio' }} → {{ fin or 'Hoy' }}</span>
+        </div>
+        <div class="dashboard-kpi">
+            <span class="label">Vista</span>
+            <span class="value" id="dashboardVistaLabel">Departamento</span>
+        </div>
+        <div class="dashboard-kpi">
+            <span class="label">Selección</span>
+            <span class="value" id="dashboardSelectedLabel">0 departamentos</span>
+        </div>
+    </div>
+
+    <div class="dashboard-grid">
+        <aside class="dashboard-panel">
+            <div class="dashboard-filter-panel">
+                <div class="dashboard-section-title">Filtros generales</div>
+                <div class="dashboard-section-caption">Ajusta fechas y el tipo de visualización.</div>
+                <form method="GET" action="{{ url_for('dashboard', modulo=modulo) }}" class="row g-3 align-items-end">
+                    <div class="col-12">
+                        <label class="form-label">Desde</label>
+                        <input type="date" name="inicio" value="{{ inicio }}" class="form-control shadow-sm">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Hasta</label>
+                        <input type="date" name="fin" value="{{ fin }}" class="form-control shadow-sm">
+                    </div>
+                    <div class="col-12 d-flex gap-2">
+                        <button type="submit" class="btn btn-primary fw-bold flex-fill">Filtrar</button>
+                        <a href="{{ url_for('dashboard', modulo=modulo) }}" class="btn btn-outline-secondary fw-bold">Limpiar</a>
+                    </div>
+                </form>
+            </div>
+
+            <div class="dashboard-filter-panel">
+                <div class="dashboard-section-title">Tipo de gráfica</div>
+                <select id="filtroDatos" class="form-select shadow-sm mb-3" onchange="actualizarGrafica()">
+                    <option value="estatus">RDM por Estado (Por Fecha)</option>
+                    <option value="cruce">Volumen por Departamento (A través del Tiempo)</option>
+                    <option value="depto">Total General por Departamento</option>
+                </select>
+                <select id="tipoGrafica" class="form-select shadow-sm" onchange="actualizarGrafica()">
+                    <option value="bar_horizontal">Barras Horizontales</option>
+                    <option value="bar">Barras Verticales</option>
+                    <option value="line">Línea de Tendencia</option>
+                    <option value="doughnut">Gráfico Circular</option>
+                </select>
+            </div>
+
+            <div class="dashboard-filter-panel">
+                <div class="dashboard-selector-topbar">
+                    <div>
+                        <div class="dashboard-section-title mb-1">Departamentos</div>
+                        <div class="dashboard-section-caption mb-0">Marca uno o varios para que el gráfico se dibuje de forma progresiva.</div>
+                    </div>
+                    <span class="dashboard-selector-badge" id="dashboardDeptCount">0 visibles</span>
+                </div>
+                <div id="deptSelectorRoot"></div>
+            </div>
+        </aside>
+
+        <section class="dashboard-chart-panel">
+            <div class="chart-legend-note">La animación y los filtros se aplican sobre la vista actual. Si no ves selección, usa “Seleccionar todos” o filtra por uno o más departamentos.</div>
+            <div class="chart-surface" id="contenedorGrafica">
+                <canvas id="miGraficaMaestra"></canvas>
+            </div>
+        </section>
     </div>
 </div>
 
@@ -71,6 +109,8 @@
             document.getElementById('tipoGrafica').value = localStorage.getItem(keyTipo);
         }
         actualizarGrafica();
+        // build department selector once chart data is available
+        if(typeof createDeptSelector === 'function') createDeptSelector(dataDepto);
     };
 
     const pluginFondoBlanco = {
@@ -93,6 +133,11 @@
         
         localStorage.setItem(keyFiltro, filtro);
         localStorage.setItem(keyTipo, tipo);
+
+        if (typeof window.updateVistaLabel === 'function') {
+            const vistaLabel = document.getElementById('filtroDatos').options[document.getElementById('filtroDatos').selectedIndex].text;
+            window.updateVistaLabel(vistaLabel);
+        }
         
         let indexAxis = 'x';
         if (tipo === 'bar_horizontal') {
@@ -106,26 +151,17 @@
         // LÓGICA DE DATOS
         if (filtro === 'estatus') {
             if (tipo === 'doughnut') {
-                const totalEjec = dataEstatus.ejecutadas.reduce((a, b) => a + b, 0);
-                const totalPorEjec = dataEstatus.por_ejecutar.reduce((a, b) => a + b, 0);
-                const totalPorCotizar = dataEstatus.por_cotizar.reduce((a, b) => a + b, 0);
-                const totalCotizadas = dataEstatus.cotizadas.reduce((a, b) => a + b, 0);
-
-                chartLabels = ['✅ Ejecutadas', '⏳ Por Ejecutar', '⏳ Por Cotizar', '💼 Cotizadas'];
+                chartLabels = dataEstatus.total_labels;
                 chartDatasets = [{
-                    data: [totalEjec, totalPorEjec, totalPorCotizar, totalCotizadas],
-                    backgroundColor: ['#28a745', '#ffc107', '#17a2b8', '#6f42c1'],
+                    label: 'Total por Estado',
+                    data: dataEstatus.total_valores,
+                    backgroundColor: dataEstatus.total_colores,
                     borderColor: '#ffffff',
                     borderWidth: 2
                 }];
             } else {
                 chartLabels = dataEstatus.labels;
-                chartDatasets = [
-                    { label: '✅ Ejecutadas', data: dataEstatus.ejecutadas, backgroundColor: '#28a745', borderColor: '#28a745' },
-                    { label: '⏳ Por Ejecutar', data: dataEstatus.por_ejecutar, backgroundColor: '#ffc107', borderColor: '#e0a800' },
-                    { label: '⏳ Por Cotizar', data: dataEstatus.por_cotizar, backgroundColor: '#17a2b8', borderColor: '#138496' },
-                    { label: '💼 Cotizadas', data: dataEstatus.cotizadas, backgroundColor: '#6f42c1', borderColor: '#5a32d4' }
-                ];
+                chartDatasets = dataEstatus.datasets;
             }
         } 
         else if (filtro === 'cruce') {
@@ -182,8 +218,48 @@
         }
 
         // ==========================================
-        // LA ORDEN DE DIBUJAR QUE SE HABÍA BORRADO
+        // Build chart (with optional progressive dept reveal)
         // ==========================================
+        // If user has selected specific departments and wants "depto" view,
+        // create an empty chart and animate bars progressively.
+        if (filtro === 'depto' && typeof window.getSelectedDeptIndices === 'function') {
+            const sel = window.getSelectedDeptIndices();
+            if (sel && sel.length > 0) {
+                // prepare progressive arrays
+                const newLabels = [];
+                const newData = [];
+                const newColors = [];
+                sel.forEach(i => {
+                    newLabels.push(dataDepto.labels[i]);
+                    newData.push(dataDepto.valores[i]);
+                    newColors.push(dataDepto.colores[i]);
+                });
+
+                if (graficaInstancia) graficaInstancia.destroy();
+                const ctx = document.getElementById('miGraficaMaestra');
+                graficaInstancia = new Chart(ctx, {
+                    type: 'bar',
+                    data: { labels: [], datasets: [{ label: 'Total RDM', data: [], backgroundColor: [] }] },
+                    plugins: [pluginFondoBlanco],
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'x',
+                        tension: 0.3,
+                        plugins: { customCanvasBackgroundColor: { color: 'white' }, legend: { display: true } },
+                        scales: { x: { beginAtZero: true }, y: { beginAtZero: true } }
+                    }
+                });
+                window.graficaInstancia = graficaInstancia;
+                if (typeof window.animateDeptSelection === 'function') {
+                    window.animateDeptSelection(graficaInstancia, newLabels, newData, newColors);
+                    const selectedCounter = document.getElementById('dashboardSelectedLabel');
+                    if (selectedCounter) selectedCounter.textContent = `${newLabels.length} departamentos`;
+                    return;
+                }
+            }
+        }
+
         if (graficaInstancia) {
             graficaInstancia.destroy();
         }
@@ -216,6 +292,13 @@
                 } : {}
             }
         });
+        window.graficaInstancia = graficaInstancia;
+
+        if (typeof window.getSelectedDeptIndices === 'function') {
+            const selectedCount = window.getSelectedDeptIndices().length;
+            const selectedCounter = document.getElementById('dashboardSelectedLabel');
+            if (selectedCounter) selectedCounter.textContent = `${selectedCount} departamentos`;
+        }
     }
 
     function descargarGraficaPDF() {
@@ -244,4 +327,5 @@
         pdf.save(`Reporte_Grafico_${moduloActual}.pdf`);
     }
 </script>
+<script src="{{ url_for('static', filename='dashboard.js', v='2') }}"></script>
 {% endblock %}
