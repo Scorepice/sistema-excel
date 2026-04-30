@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 
-<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css', v='2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css', v='4') }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="{{ url_for('static', filename='dashboard.js', v='5') }}"></script>
 
 <div class="dashboard-shell mb-5">
     <div class="dashboard-hero">
@@ -83,6 +84,17 @@
         </aside>
 
         <section class="dashboard-chart-panel">
+            <div class="dashboard-filter-panel dashboard-state-panel">
+                <div class="dashboard-selector-topbar">
+                    <div>
+                        <div class="dashboard-section-title mb-1">Estados de la RDM</div>
+                        <div class="dashboard-section-caption mb-0">Selecciona estados arriba y mira la gráfica sin bajar demasiado el panel.</div>
+                    </div>
+                    <span class="dashboard-selector-badge" id="dashboardStateSelectedLabel">0 estados</span>
+                </div>
+                <div id="stateSelectorRoot"></div>
+            </div>
+
             <div class="chart-legend-note">La animación y los filtros se aplican sobre la vista actual. Si no ves selección, usa “Seleccionar todos” o filtra por uno o más departamentos.</div>
             <div class="chart-surface" id="contenedorGrafica">
                 <canvas id="miGraficaMaestra"></canvas>
@@ -96,6 +108,7 @@
     const dataEstatus = {{ data_estatus | tojson }};
     const dataDepto = {{ data_depto | tojson }};
     const dataCruce = {{ data_cruce | tojson }};
+    const dataEstatusByDept = {{ estatus_por_depto | tojson }};
     let graficaInstancia = null;
 
     // Memoria inteligente: Recuerda los selectores
@@ -104,13 +117,16 @@
         const keyTipo = `tipoGraficaMemoria_${moduloActual}`;
         if(localStorage.getItem(keyFiltro)) {
             document.getElementById('filtroDatos').value = localStorage.getItem(keyFiltro);
+        } else {
+            document.getElementById('filtroDatos').value = 'depto';
         }
         if(localStorage.getItem(keyTipo)) {
             document.getElementById('tipoGrafica').value = localStorage.getItem(keyTipo);
         }
-        actualizarGrafica();
         // build department selector once chart data is available
         if(typeof createDeptSelector === 'function') createDeptSelector(dataDepto);
+        if(typeof createStateSelector === 'function') createStateSelector(dataEstatus);
+        actualizarGrafica();
     };
 
     const pluginFondoBlanco = {
@@ -149,34 +165,92 @@
         let chartDatasets = [];
 
         // LÓGICA DE DATOS
+        const selIndices = (typeof window.getSelectedDeptIndices === 'function') ? window.getSelectedDeptIndices() : [];
+        const selLabels = (selIndices || []).map(i => dataDepto.labels[i]).filter(Boolean);
+        const selStateIndices = (typeof window.getSelectedStateIndices === 'function') ? window.getSelectedStateIndices() : [];
+        const selStateLabels = (selStateIndices || []).map(i => dataEstatus.total_labels[i]).filter(Boolean);
+
         if (filtro === 'estatus') {
+            const estadosBase = dataEstatus.total_labels || [];
+            const coloresBase = dataEstatus.total_colores || [];
+            const mapaColoresEstado = {};
+            estadosBase.forEach((estado, idx) => { mapaColoresEstado[estado] = coloresBase[idx] || '#999999'; });
+            const estadosActivos = selStateLabels.length > 0 ? selStateLabels : estadosBase;
+
             if (tipo === 'doughnut') {
-                chartLabels = dataEstatus.total_labels;
+                chartLabels = estadosActivos;
+                const valoresTotales = estadosActivos.map(function(estado) {
+                    let total = 0;
+                    if (selLabels.length > 0 && typeof dataEstatusByDept !== 'undefined') {
+                        selLabels.forEach(depto => {
+                            const mapa = dataEstatusByDept[depto] || {};
+                            const arr = mapa[estado] || [];
+                            total += arr.reduce((acc, val) => acc + (Number(val) || 0), 0);
+                        });
+                    } else {
+                        const idx = estadosBase.indexOf(estado);
+                        total = idx >= 0 ? (dataEstatus.total_valores[idx] || 0) : 0;
+                    }
+                    return total;
+                });
                 chartDatasets = [{
                     label: 'Total por Estado',
-                    data: dataEstatus.total_valores,
-                    backgroundColor: dataEstatus.total_colores,
+                    data: valoresTotales,
+                    backgroundColor: estadosActivos.map(estado => mapaColoresEstado[estado] || '#999999'),
                     borderColor: '#ffffff',
                     borderWidth: 2
                 }];
             } else {
                 chartLabels = dataEstatus.labels;
-                chartDatasets = dataEstatus.datasets;
+                if (selLabels.length > 0 && typeof dataEstatusByDept !== 'undefined') {
+                    const agg = {};
+                    estadosBase.forEach(e => { agg[e] = Array(chartLabels.length).fill(0); });
+                    selLabels.forEach(depto => {
+                        const mapa = dataEstatusByDept[depto] || {};
+                        estadosBase.forEach(e => {
+                            const arr = mapa[e] || Array(chartLabels.length).fill(0);
+                            for (let i = 0; i < chartLabels.length; i++) {
+                                agg[e][i] = (agg[e][i] || 0) + (Number(arr[i]) || 0);
+                            }
+                        });
+                    });
+                    chartDatasets = estadosActivos.map(function(estado) {
+                        const color = mapaColoresEstado[estado] || '#999999';
+                        return {
+                            label: estado,
+                            data: agg[estado] || Array(chartLabels.length).fill(0),
+                            backgroundColor: color,
+                            borderColor: color,
+                            borderWidth: 1
+                        };
+                    });
+                } else {
+                    chartDatasets = dataEstatus.datasets.filter(function(ds) {
+                        return estadosActivos.indexOf(ds.label) !== -1;
+                    });
+                }
             }
         } 
         else if (filtro === 'cruce') {
-            if (tipo === 'doughnut') {
-                chartLabels = dataDepto.labels;
-                chartDatasets = [{
-                    label: 'Total RDM',
-                    data: dataDepto.valores,
-                    backgroundColor: dataDepto.colores, 
-                    borderColor: '#ffffff',
-                    borderWidth: 2
-                }];
+            chartLabels = dataCruce.labels;
+            // If departments selected, only show those datasets
+            if (selLabels && selLabels.length > 0) {
+                const filtered = dataCruce.datasets.filter(d => selLabels.indexOf(d.label) !== -1);
+                chartDatasets = filtered;
             } else {
-                chartLabels = dataCruce.labels;
-                chartDatasets = dataCruce.datasets;
+                if (tipo === 'doughnut') {
+                    chartLabels = dataDepto.labels;
+                    chartDatasets = [{
+                        label: 'Total RDM',
+                        data: dataDepto.valores,
+                        backgroundColor: dataDepto.colores, 
+                        borderColor: '#ffffff',
+                        borderWidth: 2
+                    }];
+                } else {
+                    chartLabels = dataCruce.labels;
+                    chartDatasets = dataCruce.datasets;
+                }
             }
         } 
         else if (filtro === 'depto') {
@@ -221,42 +295,103 @@
         // Build chart (with optional progressive dept reveal)
         // ==========================================
         // If user has selected specific departments and wants "depto" view,
-        // create an empty chart and animate bars progressively.
+        // draw only the selected ones. If there are none, keep the chart blank.
         if (filtro === 'depto' && typeof window.getSelectedDeptIndices === 'function') {
             const sel = window.getSelectedDeptIndices();
-            if (sel && sel.length > 0) {
-                // prepare progressive arrays
-                const newLabels = [];
-                const newData = [];
-                const newColors = [];
-                sel.forEach(i => {
-                    newLabels.push(dataDepto.labels[i]);
-                    newData.push(dataDepto.valores[i]);
-                    newColors.push(dataDepto.colores[i]);
-                });
-
-                if (graficaInstancia) graficaInstancia.destroy();
-                const ctx = document.getElementById('miGraficaMaestra');
-                graficaInstancia = new Chart(ctx, {
-                    type: 'bar',
-                    data: { labels: [], datasets: [{ label: 'Total RDM', data: [], backgroundColor: [] }] },
-                    plugins: [pluginFondoBlanco],
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        indexAxis: 'x',
-                        tension: 0.3,
-                        plugins: { customCanvasBackgroundColor: { color: 'white' }, legend: { display: true } },
-                        scales: { x: { beginAtZero: true }, y: { beginAtZero: true } }
-                    }
-                });
-                window.graficaInstancia = graficaInstancia;
-                if (typeof window.animateDeptSelection === 'function') {
-                    window.animateDeptSelection(graficaInstancia, newLabels, newData, newColors);
-                    const selectedCounter = document.getElementById('dashboardSelectedLabel');
-                    if (selectedCounter) selectedCounter.textContent = `${newLabels.length} departamentos`;
-                    return;
+            if (!sel || sel.length === 0) {
+                if (graficaInstancia) {
+                    graficaInstancia.destroy();
+                    graficaInstancia = null;
                 }
+                const emptyCtx = document.getElementById('miGraficaMaestra');
+                const emptyCanvas = emptyCtx.getContext('2d');
+                emptyCanvas.clearRect(0, 0, emptyCtx.width, emptyCtx.height);
+                emptyCanvas.font = '18px Arial';
+                emptyCanvas.fillStyle = '#9aa8b7';
+                emptyCanvas.fillText('Selecciona departamentos en la izquierda para mostrar la gráfica.', 24, 40);
+                const selectedCounter = document.getElementById('dashboardSelectedLabel');
+                if (selectedCounter) selectedCounter.textContent = '0 departamentos';
+                if (typeof window.updateVistaLabel === 'function') window.updateVistaLabel('Departamento');
+                return;
+            }
+
+            const newLabels = [];
+            const newData = [];
+            const newColors = [];
+            sel.forEach(i => {
+                newLabels.push(dataDepto.labels[i]);
+                newData.push(dataDepto.valores[i]);
+                newColors.push(dataDepto.colores[i]);
+            });
+
+            if (graficaInstancia) graficaInstancia.destroy();
+            const ctx = document.getElementById('miGraficaMaestra');
+            graficaInstancia = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Departamentos seleccionados',
+                        data: [],
+                        backgroundColor: [],
+                        borderColor: [],
+                        borderWidth: 1,
+                    }]
+                },
+                plugins: [pluginFondoBlanco],
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'x',
+                    plugins: { customCanvasBackgroundColor: { color: 'white' }, legend: { display: false } },
+                    scales: { x: { beginAtZero: true }, y: { beginAtZero: true } }
+                }
+            });
+            window.graficaInstancia = graficaInstancia;
+            if (typeof window.animateDeptSelection === 'function') {
+                window.animateDeptSelection(graficaInstancia, newLabels, newData, newColors);
+                const selectedCounter = document.getElementById('dashboardSelectedLabel');
+                if (selectedCounter) selectedCounter.textContent = `${newLabels.length} departamentos`;
+                return;
+            }
+        }
+
+        // If user selected departments while in 'cruce' (time-series) view, progressively add datasets
+        if (filtro === 'cruce' && selLabels && selLabels.length > 0) {
+            if (!chartDatasets || chartDatasets.length === 0) {
+                // nothing to show
+                if (graficaInstancia) { graficaInstancia.destroy(); graficaInstancia = null; }
+                const ctxEmpty = document.getElementById('miGraficaMaestra');
+                ctxEmpty.getContext('2d').clearRect(0, 0, ctxEmpty.width, ctxEmpty.height);
+                ctxEmpty.getContext('2d').font = '18px Arial';
+                ctxEmpty.getContext('2d').fillStyle = '#9aa8b7';
+                ctxEmpty.getContext('2d').fillText('No hay departamentos seleccionados para esta vista.', 24, 40);
+                const selectedCounter = document.getElementById('dashboardSelectedLabel');
+                if (selectedCounter) selectedCounter.textContent = `${selLabels.length} departamentos`;
+                return;
+            }
+
+            if (graficaInstancia) graficaInstancia.destroy();
+            const ctx = document.getElementById('miGraficaMaestra');
+            graficaInstancia = new Chart(ctx, {
+                type: tipo === 'doughnut' ? 'bar' : tipo,
+                data: { labels: chartLabels, datasets: [] },
+                plugins: [pluginFondoBlanco],
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: indexAxis,
+                    tension: 0.3,
+                    plugins: { customCanvasBackgroundColor: { color: 'white' }, legend: { display: false } },
+                    scales: tipo !== 'doughnut' ? { x: { beginAtZero: true }, y: { beginAtZero: true } } : {}
+                }
+            });
+            window.graficaInstancia = graficaInstancia;
+            if (typeof window.animateAddDatasets === 'function') {
+                window.animateAddDatasets(graficaInstancia, chartDatasets);
+                const selectedCounter = document.getElementById('dashboardSelectedLabel');
+                if (selectedCounter) selectedCounter.textContent = `${selLabels.length} departamentos`;
+                return;
             }
         }
 
@@ -284,7 +419,7 @@
                 tension: 0.3,
                 plugins: { 
                     customCanvasBackgroundColor: { color: 'white' },
-                    legend: { display: true }
+                    legend: { display: false }
                 },
                 scales: tipo !== 'doughnut' ? { 
                     x: { beginAtZero: true, ticks: { stepSize: 1 } }, 
@@ -297,7 +432,19 @@
         if (typeof window.getSelectedDeptIndices === 'function') {
             const selectedCount = window.getSelectedDeptIndices().length;
             const selectedCounter = document.getElementById('dashboardSelectedLabel');
-            if (selectedCounter) selectedCounter.textContent = `${selectedCount} departamentos`;
+            if (selectedCounter) {
+                if (filtro === 'estatus' && selStateLabels.length > 0) {
+                    selectedCounter.textContent = `${selStateLabels.length} estados`;
+                } else {
+                    selectedCounter.textContent = `${selectedCount} departamentos`;
+                }
+            }
+        }
+
+        if (typeof window.getSelectedStateIndices === 'function') {
+            const stateCount = window.getSelectedStateIndices().length;
+            const selectedStateCounter = document.getElementById('dashboardStateSelectedLabel');
+            if (selectedStateCounter) selectedStateCounter.textContent = `${stateCount} estados`;
         }
     }
 
@@ -327,5 +474,4 @@
         pdf.save(`Reporte_Grafico_${moduloActual}.pdf`);
     }
 </script>
-<script src="{{ url_for('static', filename='dashboard.js', v='2') }}"></script>
 {% endblock %}

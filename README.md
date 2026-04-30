@@ -112,24 +112,30 @@ Tipos de campo del formulario:
 
 - Estado: si el nombre contiene estado o esatad.
 - Prioridad: si contiene prioridad.
-- Fecha: si contiene fecha, descripci, parte o #parte.
+- Fecha: si contiene fecha, emision, desde o hasta.
 - Numero: si contiene cant, monto, valor, precio, total, desde o hasta.
 - Texto: cualquier otro.
 
 Columnas minimas para graficas:
 
 - Estado (contiene estad/esatad)
-- Fecha (contiene descripci/desde/parte/fecha)
+- Fecha (contiene fecha/emision/desde/hasta)
 - Departamento (contiene departamento/depto)
 
 Si faltan esas columnas, el dashboard muestra aviso y no grafica.
+
+Importante en carga de Excel:
+
+- Si la tabla del modulo ya existe, la app valida compatibilidad minima de columnas para evitar corrimientos de datos.
+- Si el Excel trae columnas nuevas y es compatible, la app amplia la tabla automaticamente y conserva esas columnas.
+- Si la compatibilidad es baja (archivo de otro modulo/layout), la carga se rechaza con mensaje de error.
 
 ## 9) Graficas del dashboard
 
 Se generan 3 estructuras de datos:
 
 - data_estatus:
-  - Conteo mensual por estado: Ejecutada, Por Ejecutar, Por Cotizar, Cotizada.
+  - Conteo mensual por todos los valores unicos de la columna Estado (sin agrupar categorias fijas).
 - data_depto:
   - Conteo total por departamento.
 - data_cruce:
@@ -178,6 +184,72 @@ Rutas legacy redirigen al modulo por defecto rdm_abiertas.
 - Si cambia el layout de columnas del Excel de un modulo, validar que coincidan los nombres esperados para dashboard.
 - Limpiar base borra toda la tabla del modulo actual (operacion destructiva).
 
+## 12.2) Ejecucion portable en otra PC o USB
+
+El proyecto ya incluye una version portable en `release/SistemaExcelPortable/` para ejecutarse en otra computadora sin instalar Python ni Visual Studio.
+
+Flujo de uso:
+
+1. Copiar la carpeta completa `release/SistemaExcelPortable/` a una memoria USB o a la PC destino.
+2. Abrir la carpeta `SistemaExcelPortable` en la otra PC.
+3. Ejecutar `Iniciar Sistema Excel.cmd`.
+4. El sistema levanta un servidor local y abre `http://127.0.0.1:5000` en el navegador.
+5. Para detenerlo, ejecutar `Detener Sistema Excel.cmd`.
+
+La carpeta portable ya incluye:
+
+- Python embebido.
+- `app.py`.
+- `templates/`.
+- `static/`.
+- `database.db`.
+- Scripts de inicio y detencion.
+
+## 12.3) Crear el EXE del instalador
+
+Si quieres distribuir un instalador en formato `.exe`, el proyecto incluye el instalador grafico en `release/installer/`.
+
+Orden recomendado de construccion:
+
+1. Generar el paquete portable comprimido:
+
+```powershell
+Compress-Archive -Path .\release\SistemaExcelPortable\* -DestinationPath .\release\installer\SistemaExcelPortable_payload_v2.zip -Force
+```
+
+2. Compilar el instalador grafico con PyInstaller:
+
+```powershell
+pyinstaller --noconfirm --clean --onefile --name SistemaExcel_Instalador --add-data "release\installer\SistemaExcelPortable_payload_v2.zip;." release\installer\instalador_gui.py
+```
+
+3. El ejecutable resultante queda en `dist\SistemaExcel_Instalador.exe`.
+
+4. Ese instalador copia la version portable a la carpeta que elijas, por ejemplo en una USB o en `%LOCALAPPDATA%\SistemaExcel`.
+
+Notas importantes:
+
+- El instalador no requiere que la PC destino tenga Python ni Visual Studio.
+- Para una distribucion totalmente portable, tambien puedes copiar directamente `release\SistemaExcelPortable\` a la USB sin crear el instalador.
+- Si cambias el nombre del ZIP del payload, actualiza el archivo `release/installer/SistemaExcel_Instalador.spec`.
+
+## 12.4) Limites de carga y volumen (configurable)
+
+La app ahora separa limite de almacenamiento, paginacion de tabla y tamano de archivo:
+
+- MAX_UPLOAD_MB: tamano maximo por archivo en MB. Default: 100.
+- MAX_STORED_ROWS_PER_MODULE: maximo de filas guardadas por modulo (se eliminan las mas antiguas si se supera). Default: 100000.
+- MAX_TABLE_PAGE_SIZE: maximo de filas por pagina en /datos_json. Default: 5000.
+
+Ejemplo en PowerShell antes de ejecutar:
+
+```powershell
+$env:MAX_UPLOAD_MB = "250"
+$env:MAX_STORED_ROWS_PER_MODULE = "300000"
+$env:MAX_TABLE_PAGE_SIZE = "5000"
+python app.py
+```
+
 ## 13) Solucion de problemas
 
 - Error al leer Excel:
@@ -196,9 +268,9 @@ Rutas legacy redirigen al modulo por defecto rdm_abiertas.
 - Pruebas unitarias e integracion.
 - Paginar datos en servidor para tablas grandes.
 
-## 15) Crear ejecutable (.exe)
+## 15) Crear ejecutable principal (.exe) de la aplicacion
 
-Si, es posible generar un ejecutable para Windows usando PyInstaller.
+Si quieres generar un `SistemaExcel.exe` que arranque la app Flask directamente en la PC donde se ejecute, puedes usar PyInstaller.
 
 1. Instalar PyInstaller en el entorno virtual:
 
@@ -206,24 +278,19 @@ Si, es posible generar un ejecutable para Windows usando PyInstaller.
 pip install pyinstaller
 ```
 
-2. Compilar el ejecutable desde la carpeta del proyecto:
+2. Compilar desde la carpeta del proyecto:
 
 ```powershell
 pyinstaller --noconfirm --clean --onefile --name SistemaExcel --add-data "templates;templates" --add-data "static;static" app.py
 ```
 
-3. Resultado:
+3. El archivo final queda en `dist\SistemaExcel.exe`.
 
-- El archivo final queda en dist/SistemaExcel.exe
-
-4. Ejecutar:
-
-- Abrir SistemaExcel.exe
-- Luego entrar a http://127.0.0.1:5000 en el navegador
+4. Al ejecutarlo, la app levanta el servidor local y puedes abrir el navegador en `http://127.0.0.1:5000`.
 
 Notas importantes:
 
-- La app ya quedo adaptada para localizar templates y static en modo ejecutable.
-- La base de datos database.db se crea junto al .exe.
-- Los reportes Excel/PDF tambien se guardan junto al .exe.
-- Si Windows Defender bloquea el .exe, agregar excepcion o firmar el ejecutable.
+- La app ya detecta `templates/` y `static/` tanto en modo normal como empaquetado.
+- La base de datos `database.db` se crea junto al `.exe`.
+- Los reportes Excel/PDF también se guardan junto al `.exe`.
+- Si Windows Defender bloquea el `.exe`, agrega una excepción o firma el ejecutable.

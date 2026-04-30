@@ -708,6 +708,28 @@ def dashboard(modulo):
             }
         )
 
+    # Precompute per-department breakdown for 'estatus' so the client can filter by departamento.
+    # Build a mapping: dept -> { estado: [values aligned with data_estatus['labels']] }
+    meses_master = data_estatus['labels']
+    estatus_por_depto = {}
+    for depto in deptos_unicos:
+        df_depto = df[df[col_depto] == depto]
+        if df_depto.empty:
+            # zero arrays for each estado
+            estatus_por_depto[depto] = {str(estado): [0] * len(meses_master) for estado in pivot_estado.columns.astype(str).tolist()}
+            continue
+
+        pivot_depto = pd.crosstab(df_depto['Mes'], df_depto[col_estado])
+        # align to master months and all estados
+        pivot_depto = pivot_depto.reindex(meses_master, fill_value=0)
+        mapa = {}
+        for estado in pivot_estado.columns.astype(str).tolist():
+            if estado in pivot_depto.columns:
+                mapa[str(estado)] = pivot_depto[estado].tolist()
+            else:
+                mapa[str(estado)] = [0] * len(meses_master)
+        estatus_por_depto[depto] = mapa
+
     return render_template(
         'dashboard.html',
         modulo=modulo,
@@ -717,6 +739,7 @@ def dashboard(modulo):
         data_cruce=data_cruce,
         inicio=inicio,
         fin=fin,
+        estatus_por_depto=estatus_por_depto,
     )
 
 
